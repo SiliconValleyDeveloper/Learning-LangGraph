@@ -14,3 +14,4 @@ ui/.angular/
 .data/advanced-uploads/
 Learning/11_rag_llm_ecosystem/data/private/*
 !Learning/11_rag_llm_ecosystem/data/private/README.example.md
+.cursor/
