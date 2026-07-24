@@ -1,0 +1,88 @@
+# Advanced chatbot deploy stack: Postgres+pgvector + API + DB UI
+#
+# Start everything:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# API (container):  http://localhost:8001
+# Postgres:         localhost:5433
+# DB UI (pgweb):    http://localhost:8082
+# Adminer:          http://localhost:8083
+# Local Ollama:     host.docker.internal:11434
+#
+# DB UI only:
+#   docker compose -f deploy/docker-compose.yml up -d db db-ui adminer
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: langgraph-pgvector
+    environment:
+      POSTGRES_USER: langgraph
+      POSTGRES_PASSWORD: langgraph
+      POSTGRES_DB: langgraph
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-pgvector.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langgraph -d langgraph"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-ui:
+    image: sosedoff/pgweb:latest
+    container_name: langgraph-pgweb
+    ports:
+      - "8082:8081"
+    environment:
+      PGWEB_DATABASE_URL: postgres://langgraph:langgraph@db:5432/langgraph?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: langgraph-adminer
+    ports:
+      - "8083:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: langgraph-api
+    ports:
+      - "8001:8000"
+    environment:
+      VECTOR_BACKEND: pgvector
+      DATABASE_URL: postgresql://langgraph:langgraph@db:5432/langgraph
+      EMBED_DIMS: "768"
+      OCR_PROVIDER: auto
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: qwen3:8b
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      OLLAMA_VISION_MODEL: moondream
+      ADVANCED_UPLOAD_ROOT: /app/.data/advanced-uploads
+    volumes:
+      - advanced_uploads:/app/.data/advanced-uploads
+      - doc_uploads:/app/.data/doc-uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  advanced_uploads:
+  doc_uploads:

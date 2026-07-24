@@ -1,0 +1,31 @@
+// Minimal theme surface used by LangGraph Lab.
+
+@import "../../fonts/fonts";
+
+@import "./node_modules/bootstrap/scss/functions";
+@import "./node_modules/bootstrap/scss/variables";
+@import "variables";
+@import "variables-custom";
+@import "variables-dark";
+@import "./node_modules/bootstrap/scss/mixins";
+
+// Vertical application shell
+@import "../../structure/topbar";
+@import "../../structure/footer";
+@import "../../structure/vertical";
+@import "../../structure/layouts";
+
+// Theme helpers used by the shell and chat
+@import "../../components/helper";
+@import "../../components/forms";
+@import "../../components/root";
+@import "../../components/reboot";
+@import "../../components/alerts";
+@import "../../components/badge";
+@import "../../components/buttons";
+@import "../../components/dropdown";
+@import "../../components/nav";
+@import "../../components/type";
+@import "../../components/form-check";
+@import "../../components/form-control";
+@import "../../components/list-group";

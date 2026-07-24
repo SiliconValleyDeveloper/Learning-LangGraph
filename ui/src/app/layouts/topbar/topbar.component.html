@@ -1,0 +1,22 @@
+<header id="page-topbar">
+  <div class="layout-width">
+    <div class="navbar-header">
+      <div class="d-flex align-items-center">
+        <div>
+          <strong class="d-block">{{ page.title }}</strong>
+          <small class="text-muted">{{ page.subtitle }}</small>
+        </div>
+      </div>
+
+      <nav class="d-flex align-items-center gap-3 small">
+        <a routerLink="/chat" class="text-muted text-decoration-none">Lab</a>
+        <a routerLink="/chat/person-finder" class="text-muted text-decoration-none">Person Finder</a>
+        <a routerLink="/chat/doc-rag" class="text-muted text-decoration-none">Doc Q&amp;A</a>
+        <span class="text-muted d-inline-flex align-items-center gap-1">
+          <i class="ri-shield-check-line text-success"></i>
+          Local-first
+        </span>
+      </nav>
+    </div>
+  </div>
+</header>

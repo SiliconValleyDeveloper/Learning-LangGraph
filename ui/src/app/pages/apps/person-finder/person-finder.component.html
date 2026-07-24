@@ -1,0 +1,157 @@
+<div class="finder-shell">
+  <header class="finder-hero">
+    <div>
+      <p class="eyebrow">Applications</p>
+      <h1>Person Finder</h1>
+      <p class="lede">
+        {{ summary || 'LangGraph research graph: generate queries, search the web, extract a profile, then reflect on gaps.' }}
+      </p>
+    </div>
+    <div class="status-pill" [class.status-pill--online]="isOnline">
+      <span>{{ isOnline ? 'API online' : 'API offline' }}</span>
+      <small>{{ model }}</small>
+    </div>
+  </header>
+
+  <div class="finder-grid">
+    <section class="panel input-panel" aria-label="Person details">
+      <div class="panel-head">
+        <h2>Who should we research?</h2>
+        <p>Public professional information only. Provide a name plus any useful context.</p>
+      </div>
+
+      <form [formGroup]="form" (ngSubmit)="research()">
+        <label>
+          <span>Name</span>
+          <input formControlName="name" type="text" placeholder="Full name" autocomplete="name" />
+        </label>
+        <div class="field-row">
+          <label>
+            <span>Email</span>
+            <input formControlName="email" type="email" placeholder="optional" />
+          </label>
+          <label>
+            <span>Company</span>
+            <input formControlName="company" type="text" placeholder="optional" />
+          </label>
+        </div>
+        <div class="field-row">
+          <label>
+            <span>Role</span>
+            <input formControlName="role" type="text" placeholder="optional" />
+          </label>
+          <label>
+            <span>LinkedIn</span>
+            <input formControlName="linkedin" type="url" placeholder="optional URL" />
+          </label>
+        </div>
+        <label>
+          <span>Notes</span>
+          <textarea
+            formControlName="notes"
+            rows="3"
+            placeholder="Extra context, e.g. focus on public AI work"></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="primary" [disabled]="isSending || form.invalid">
+            {{ isSending ? 'Researching…' : 'Find person' }}
+          </button>
+          <button type="button" class="ghost" (click)="fillSample('chase')" [disabled]="isSending">
+            Sample: Harrison Chase
+          </button>
+          <button type="button" class="ghost" (click)="fillSample('karpathy')" [disabled]="isSending">
+            Sample: Andrej Karpathy
+          </button>
+          <button type="button" class="ghost" (click)="resetThread()" [disabled]="isSending">
+            New thread
+          </button>
+        </div>
+      </form>
+
+      @if (teachPoints.length) {
+        <ul class="teach">
+          @for (point of teachPoints; track point) {
+            <li>{{ point }}</li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="panel result-panel" aria-label="Research results">
+      <div class="panel-head">
+        <h2>Profile</h2>
+        <p>
+          Path:
+          @if (stats.path?.length) {
+            {{ stats.path.join(' → ') }}
+          } @else {
+            waiting for a run
+          }
+        </p>
+      </div>
+
+      @if (errorMessage) {
+        <div class="error">{{ errorMessage }}</div>
+      }
+
+      @if (isSending) {
+        <div class="loading">Running generate_queries → research → extract → reflect…</div>
+      }
+
+      @if (profile) {
+        <dl class="profile-grid">
+          @for (key of profileKeys(); track key) {
+            <div>
+              <dt>{{ key }}</dt>
+              <dd>{{ displayValue(profile[key]) }}</dd>
+            </div>
+          }
+        </dl>
+      } @else if (!isSending && !errorMessage) {
+        <p class="empty">Submit a person to see the structured profile.</p>
+      }
+
+      @if (sources.length) {
+        <div class="sources">
+          <h3>Sources</h3>
+          <ul>
+            @for (url of sources; track url) {
+              <li><a [href]="url" target="_blank" rel="noopener noreferrer">{{ url }}</a></li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (traceSteps.length) {
+        <div class="trace">
+          <h3>Graph trace</h3>
+          <ol>
+            @for (step of traceSteps; track step.sequence) {
+              <li>
+                <strong>{{ step.node }}</strong>
+                <span>{{ step.summary }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+      }
+
+      @if (toolEvents.length) {
+        <div class="tools">
+          <h3>Search tools</h3>
+          @for (event of toolEvents; track $index) {
+            <article>
+              <strong>{{ event.name }}</strong>
+              <pre>{{ event.result }}</pre>
+            </article>
+          }
+        </div>
+      }
+
+      @if (reply && !profile) {
+        <pre class="raw-reply">{{ reply }}</pre>
+      }
+    </section>
+  </div>
+</div>

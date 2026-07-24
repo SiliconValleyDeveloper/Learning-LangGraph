@@ -1,0 +1,162 @@
+/* You can add global styles to this file, and also import other style files */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+app-root {
+  display: block;
+  height: 100%;
+}
+
+/* Lab chat: break layout padding + fill the viewport */
+app-layout,
+app-vertical,
+#layout-wrapper {
+  display: block;
+  height: 100%;
+}
+
+#layout-wrapper .main-content {
+  min-height: 100% !important;
+  height: 100% !important;
+}
+
+#layout-wrapper .page-content.lab-page {
+  box-sizing: border-box !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  padding: 70px 0 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+#layout-wrapper .lab-container {
+  display: block !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+#layout-wrapper .lab-container > app-chat {
+  display: block !important;
+  box-sizing: border-box !important;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+app-chat .agent-shell {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+app-chat .workspace-grid {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+@media (max-width: 1100px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  #layout-wrapper .page-content.lab-page {
+    height: auto !important;
+    max-height: none !important;
+    overflow: auto !important;
+  }
+
+  app-chat .agent-shell,
+  #layout-wrapper .lab-container > app-chat {
+    height: auto !important;
+    min-height: calc(100vh - 70px) !important;
+  }
+}
+
+// Swiper
+.coverflowslide .slide {
+    position: relative;
+    transition: transform 0.3s;
+}
+
+.coverflowslide .slick-list {
+    overflow: hidden !important;
+}
+
+.coverflowslide .slick-center {
+    transform: scale(1.2); // Adjust the scale factor for the "Coverflow" effect
+    z-index: 1;
+}
+
+.coverflowslide .carousel {
+    width: 100%;
+    max-width: 600px; // Adjust the carousel width as needed
+    margin: 0 auto;
+}
+
+.space .slick-slide {
+    margin: 20px;
+}
+
+#notificationItemsTabContent {
+    .avatar-title {
+        height: 30px !important;
+        width: 30px !important;
+    }
+}
+
+[data-bs-theme="dark"] {
+    .fc {
+        .fc-multimonth-daygrid {
+            background: #212529 !important;
+
+        }
+
+        .fc-day-disabled {
+            background: #282b2e !important;
+        }
+
+        .fc-multimonth {
+            border-color: #32383e !important;
+        }
+    }
+}
+
+
+#landingnft{
+    .slick-dots{
+        bottom: -36px;
+        z-index: 1;
+        .slick-active{
+            button{
+                background-color: #3577f1 !important;
+            }
+        }
+    }
+    .slick-dots li{
+        height: 7px !important;
+    }
+    .slick-dots li button {
+        width: 22px !important;
+        height: 5px !important;
+        border: none;
+        background-color: rgba(109,98,253,.2) !important;
+        padding: 0px;
+        margin: 0px;
+        transition: all .3s;
+        border-radius: 50px;
+        &::before{
+            display: none;
+        }
+    }
+
+}

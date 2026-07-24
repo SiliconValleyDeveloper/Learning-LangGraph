@@ -1,0 +1,140 @@
+<div class="doc-shell">
+  <header class="doc-hero">
+    <div>
+      <p class="eyebrow">Project</p>
+      <h1>Doc Upload Q&amp;A</h1>
+      <p class="lede">
+        Upload your own .md / .txt files. They are chunked and embedded on upload (incremental upsert),
+        then you ask questions grounded in those documents.
+      </p>
+    </div>
+    <div class="status-pill" [class.status-pill--online]="isOnline">
+      <span>{{ isOnline ? 'API online' : 'API offline' }}</span>
+      <small>{{ model }}</small>
+    </div>
+  </header>
+
+  <div class="doc-grid">
+    <section class="panel upload-panel" aria-label="Documents">
+      <div class="panel-head">
+        <h2>Documents</h2>
+        <p>
+          {{ documentCount }} file(s) · {{ chunkCount }} chunk(s)
+          @if (workspaceId) {
+            <span class="mono"> · {{ workspaceId.slice(0, 8) }}…</span>
+          }
+        </p>
+      </div>
+
+      <label class="upload-box">
+        <input
+          type="file"
+          accept=".md,.txt,.markdown,text/plain,text/markdown"
+          (change)="onFileSelected($event)"
+          [disabled]="!workspaceId || isUploading"
+        />
+        <strong>{{ isUploading ? 'Indexing…' : 'Choose a file to upload' }}</strong>
+        <span>UTF-8 .md or .txt · max 2 MB · re-upload replaces the same name</span>
+      </label>
+
+      <div class="actions">
+        <button type="button" class="ghost" (click)="seedSamples()" [disabled]="!workspaceId || isBusy">
+          Load sample docs
+        </button>
+        <button type="button" class="ghost" (click)="newWorkspace()" [disabled]="isBusy || isUploading">
+          New workspace
+        </button>
+      </div>
+
+      @if (documents.length) {
+        <ul class="doc-list">
+          @for (doc of documents; track doc.name) {
+            <li>
+              <div>
+                <strong>{{ doc.name }}</strong>
+                <small>{{ doc.chunk_count }} chunks · {{ doc.bytes }} bytes</small>
+              </div>
+              <button type="button" class="linkish" (click)="deleteDocument(doc.name)" [disabled]="isBusy">
+                Remove
+              </button>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty">No documents yet. Upload a file or load samples.</p>
+      }
+
+      <ul class="teach">
+        <li>Upload path: save file → chunk → embed → upsert vectors (no full rebuild).</li>
+        <li>Ask path: similarity search → LLM answer with citations.</li>
+        <li>Same filename re-upload deletes old chunks first, then inserts new ones.</li>
+      </ul>
+    </section>
+
+    <section class="panel chat-panel" aria-label="Questions">
+      <div class="panel-head row">
+        <div>
+          <h2>Ask</h2>
+          <p>Answers use only the documents in this workspace.</p>
+        </div>
+        <button type="button" class="ghost" (click)="resetConversation()" [disabled]="!turns.length">
+          Clear chat
+        </button>
+      </div>
+
+      <div class="chat-log" aria-live="polite">
+        @for (turn of turns; track $index) {
+          <article class="bubble" [class.bubble--user]="turn.role === 'user'">
+            <p>{{ turn.content }}</p>
+            @if (turn.sources?.length) {
+              <div class="sources">
+                @for (source of turn.sources; track source) {
+                  <span>{{ source }}</span>
+                }
+              </div>
+            }
+          </article>
+        } @empty {
+          <p class="empty">Try: “What is the refund window?” after loading sample docs.</p>
+        }
+      </div>
+
+      <form [formGroup]="form" (ngSubmit)="ask()" class="ask-form">
+        <input
+          formControlName="question"
+          type="text"
+          placeholder="Ask a question about your documents…"
+          autocomplete="off"
+        />
+        <button type="submit" class="primary" [disabled]="form.invalid || isBusy || !workspaceId">
+          {{ isBusy ? 'Thinking…' : 'Ask' }}
+        </button>
+      </form>
+
+      @if (errorMessage) {
+        <p class="error">{{ errorMessage }}</p>
+      }
+
+      @if (lastChunks.length) {
+        <div class="chunks">
+          <h3>Retrieved chunks</h3>
+          @for (chunk of lastChunks; track $index) {
+            <article>
+              <header>
+                <strong>{{ chunk.source }}</strong>
+                <span class="mono">score {{ chunk.score }}</span>
+              </header>
+              <p>{{ chunk.preview }}</p>
+            </article>
+          }
+        </div>
+      }
+    </section>
+  </div>
+
+  <p class="nav-hint">
+    <a routerLink="/chat">Learning lab</a>
+    ·
+    <a routerLink="/chat/person-finder">Person Finder</a>
+  </p>
+</div>

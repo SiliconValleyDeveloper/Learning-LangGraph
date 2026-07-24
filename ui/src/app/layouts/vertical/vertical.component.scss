@@ -1,0 +1,15 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+// Full-width layout without the vertical sidebar.
+:host ::ng-deep {
+  #page-topbar {
+    left: 0 !important;
+  }
+
+  .main-content {
+    margin-left: 0 !important;
+  }
+}

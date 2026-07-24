@@ -1,0 +1,600 @@
+<main class="agent-shell">
+  <header class="agent-hero">
+    <div class="agent-hero__brand">
+      <div class="agent-mark" aria-hidden="true">
+        <i class="ri-node-tree"></i>
+      </div>
+      <div>
+        <p class="agent-kicker">Learning folder · visual lab</p>
+        <h1>LangGraph Lab</h1>
+        <p class="agent-subtitle">
+          Explore state, tools, memory, teams, safe recovery, subgraphs,
+          durable persistence, web search, and RAG — then watch every graph run.
+        </p>
+      </div>
+    </div>
+
+    <div class="agent-status" [class.agent-status--online]="isOnline">
+      <span class="agent-status__dot" aria-hidden="true"></span>
+      <span>{{ isOnline ? model + ' online' : 'API offline' }}</span>
+    </div>
+  </header>
+
+  <div class="concept-nav">
+    <button
+      type="button"
+      class="concept-nav__arrow"
+      aria-label="Show previous concepts"
+      (click)="scrollConcepts(-1)">
+      <i class="ri-arrow-left-s-line"></i>
+    </button>
+    <div #conceptBar class="concept-bar" aria-label="LangGraph concepts">
+      @for (concept of concepts; track concept.id) {
+        <button
+          type="button"
+          class="concept-chip"
+          [class.concept-chip--active]="concept.id === selectedConceptId"
+          (click)="selectConcept(concept.id)">
+          <strong>{{ concept.title }}</strong>
+          <small>{{ concept.phase }}</small>
+        </button>
+      }
+    </div>
+    <button
+      type="button"
+      class="concept-nav__arrow concept-nav__arrow--right"
+      aria-label="Show more concepts on the right"
+      (click)="scrollConcepts(1)">
+      <i class="ri-arrow-right-s-line"></i>
+    </button>
+  </div>
+
+  <div
+    class="workspace-grid"
+    [class.workspace-grid--chat-collapsed]="!chatExpanded">
+    <aside class="workflow" aria-label="Dynamic LangGraph">
+      <div class="workflow__heading">
+        <p class="agent-kicker">{{ selectedConcept?.phase || 'concept' }}</p>
+        <h2>{{ selectedConcept?.title || 'Execution canvas' }}</h2>
+        <p class="workflow__pulse" [class.workflow__pulse--live]="isSending || activeTraceIndex >= 0">
+          {{ currentTraceSummary }}
+        </p>
+      </div>
+
+      @if (teachPoints.length) {
+        <ul class="teach-list">
+          @for (point of teachPoints; track point) {
+            <li>{{ point }}</li>
+          }
+        </ul>
+      }
+
+      <div class="metric-grid" aria-label="Execution metrics">
+        @for (metric of metricCards; track metric.label) {
+          <div class="metric" [class.metric--busy]="isSending">
+            <span class="metric__value">{{ metric.value }}</span>
+            <span class="metric__label">{{ metric.label }}</span>
+            <span class="metric__hint">{{ metric.hint }}</span>
+          </div>
+        }
+      </div>
+
+      <div class="anatomy" aria-label="Compiled graph anatomy">
+        <div><strong>{{ graph.node_count }}</strong><span>nodes</span></div>
+        <div><strong>{{ graph.edge_count }}</strong><span>edges</span></div>
+        <div><strong>{{ graph.conditional_count }}</strong><span>conditional</span></div>
+        <div><strong>{{ graph.tool_count }}</strong><span>tools</span></div>
+      </div>
+
+      <div class="graph-canvas" [class.graph-canvas--running]="isSending">
+        <svg
+          [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight"
+          role="img"
+          aria-label="LangGraph topology">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+            <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#c9852a"></path>
+            </marker>
+          </defs>
+
+          @for (edge of graphEdges; track edge.id) {
+            <g
+              class="g-edge"
+              [class.g-edge--visited]="edge.visited"
+              [class.g-edge--active]="edge.active"
+              [class.g-edge--loop]="edge.kind === 'loop'"
+              [class.g-edge--conditional]="edge.kind === 'conditional'">
+              <path [attr.d]="edge.d" marker-end="url(#arrow)"></path>
+              @if (edge.label) {
+                <text [attr.x]="edge.labelX" [attr.y]="edge.labelY">{{ edge.label }}</text>
+              }
+            </g>
+          }
+
+          @for (node of graphNodes; track node.id) {
+            <g
+              [attr.transform]="'translate(' + node.x + ' ' + node.y + ')'"
+              [ngClass]="{
+                'g-node': true,
+                'g-node--active': node.active,
+                'g-node--visited': node.visited,
+                'g-node--start': node.kind === 'start',
+                'g-node--agent': node.kind === 'agent',
+                'g-node--tools': node.kind === 'tools',
+                'g-node--end': node.kind === 'end',
+                'g-node--conditional': node.kind === 'conditional'
+              }">
+              @if (node.kind === 'conditional') {
+                <polygon
+                  [attr.points]="'0,' + (-nodeRadius(node.kind)) + ' ' + nodeRadius(node.kind) + ',0 0,' + nodeRadius(node.kind) + ' ' + (-nodeRadius(node.kind)) + ',0'"></polygon>
+              } @else {
+                <circle [attr.r]="nodeRadius(node.kind)"></circle>
+              }
+              <text>{{ node.label }}</text>
+            </g>
+          }
+        </svg>
+      </div>
+
+      <div class="path-strip" aria-label="Live execution path">
+        <span class="path-strip__label">Run path</span>
+        @if (pathNodes.length) {
+          <div class="path-strip__nodes">
+            @for (node of pathNodes; track node.id; let last = $last) {
+              <span
+                class="path-chip"
+                [ngClass]="'path-chip--' + node.kind"
+                [class.path-chip--active]="node.active"
+                [class.path-chip--done]="node.done">
+                {{ node.label }}
+              </span>
+              @if (!last) {
+                <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
+              }
+            }
+          </div>
+        } @else {
+          <p class="path-strip__empty">Waiting for a prompt…</p>
+        }
+      </div>
+
+      <div class="tool-roster">
+        <p class="tool-roster__label">Bound tools</p>
+        <div class="tool-roster__chips">
+          @for (tool of graph.tools; track tool) {
+            <span>{{ tool }}</span>
+          }
+        </div>
+      </div>
+
+      <dl class="state-strip">
+        <div>
+          <dt>Last type</dt>
+          <dd>{{ visibleState.last_message_type }}</dd>
+        </div>
+        <div>
+          <dt>Memory</dt>
+          <dd>{{ visibleState.memory_enabled ? 'on' : 'off' }}</dd>
+        </div>
+        <div>
+          <dt>Thread</dt>
+          <dd>{{ threadId.slice(0, 8) }}…</dd>
+        </div>
+      </dl>
+
+      @if (traceSteps.length) {
+        <ol class="trace-log" aria-label="Latest execution trace">
+          @for (step of traceSteps; track step.sequence) {
+            <li [class.trace-log__item--active]="$index === activeTraceIndex">
+              <span>{{ step.sequence }}</span>
+              <div>
+                <strong>{{ step.node }}</strong>
+                @if (step.edge_from && step.edge_to) {
+                  <em>{{ step.edge_from }} → {{ step.edge_to }}</em>
+                }
+                <small>{{ step.summary }}</small>
+              </div>
+            </li>
+          }
+        </ol>
+      }
+    </aside>
+
+    <section
+      class="conversation"
+      [class.conversation--collapsed]="!chatExpanded"
+      aria-label="LangGraph conversation">
+      <header class="conversation__toolbar">
+        <div class="conversation__toolbar-copy">
+          <strong>{{ chatExpanded ? 'Chat' : 'Chat collapsed' }}</strong>
+          <small>
+            @if (!chatExpanded) {
+              Expand to see the conversation
+            } @else {
+              {{ messages.length }} message{{ messages.length === 1 ? '' : 's' }}
+            }
+          </small>
+        </div>
+        <div class="conversation__toolbar-actions">
+          <button
+            type="button"
+            class="conversation__tool-btn"
+            (click)="toggleChatExpanded()"
+            [attr.aria-expanded]="chatExpanded"
+            [attr.aria-label]="chatExpanded ? 'Collapse chat' : 'Expand chat'"
+            [title]="chatExpanded ? 'Collapse chat' : 'Expand chat'">
+            <i [class]="chatExpanded ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'"></i>
+          </button>
+        </div>
+      </header>
+
+      @if (chatExpanded) {
+      <div #conversation class="conversation__stream" aria-live="polite">
+        @if (isRagConcept) {
+          <section class="rag-visualizer" aria-label="RAG execution visualizer">
+            <div class="rag-visualizer__heading">
+              <div>
+                <p class="agent-kicker">RAG under the hood</p>
+                <h3>How LangGraph grounds an LLM</h3>
+              </div>
+              <span class="rag-grounding">
+                <i class="ri-shield-check-line"></i>
+                Retrieval-augmented generation
+              </span>
+            </div>
+
+            <div class="rag-lane">
+              <div class="rag-lane__label">
+                <strong>1. Prepare knowledge</strong>
+                <small>{{ selectedConceptId === 'advanced_chatbot' ? 'pgvector store · OCR on upload (Tesseract). DeepSeek OCR is optional on GPU.' : (isDocRagConcept ? 'Upload anytime — incremental upsert' : 'Built once, then reused') }}</small>
+              </div>
+              @if (isDocRagConcept) {
+                <div class="rag-upload-bar">
+                  <label class="rag-upload-btn">
+                    <input
+                      type="file"
+                      accept=".md,.txt,.markdown,.png,.jpg,.jpeg,.webp,.pdf,text/plain,text/markdown,image/*,application/pdf"
+                      (change)="onDocFileSelected($event)"
+                      [disabled]="isDocUploading || isSending"
+                    />
+                    <i class="ri-upload-2-line"></i>
+                    {{ isDocUploading ? 'Indexing…' : (selectedConceptId === 'advanced_chatbot' ? 'Upload text / image / PDF' : 'Upload .md / .txt') }}
+                  </label>
+                  @if (selectedConceptId === 'advanced_chatbot') {
+                    <span class="rag-status-pill rag-status-pill--on" title="Images/PDFs are OCR'd on upload (Tesseract auto). DeepSeek OCR is optional on GPU.">
+                      <i class="ri-eye-line"></i>
+                      OCR active · pgvector
+                    </span>
+                  } @else {
+                    <button
+                      type="button"
+                      class="rag-upload-btn rag-upload-btn--ghost"
+                      (click)="seedDocSamples()"
+                      [disabled]="isDocUploading || isSending">
+                      Load samples
+                    </button>
+                  }
+                  <span class="rag-upload-meta">
+                    {{ ragDocumentCount }} files · {{ docChunkCount }} chunks
+                  </span>
+                </div>
+              }
+              <div class="rag-pipeline rag-pipeline--index">
+                <div class="rag-stage" [class.rag-stage--active]="ragActiveStage === 'index'">
+                  <i class="ri-file-text-line"></i>
+                  <strong>Documents</strong>
+                  <small>
+                    @if (isDocRagConcept) {
+                      {{ ragDocumentCount || 0 }} uploaded
+                    } @else {
+                      {{ ragDocumentCount || 'public + private' }} files
+                      @if (ragPrivateCount) {
+                        ({{ ragPublicCount }} public / {{ ragPrivateCount }} private)
+                      }
+                    }
+                  </small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div class="rag-stage">
+                  <i class="ri-scissors-cut-line"></i>
+                  <strong>Chunks</strong>
+                  <small>500 chars + overlap</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div class="rag-stage">
+                  <i class="ri-bubble-chart-line"></i>
+                  <strong>Embeddings</strong>
+                  <small>Meaning as vectors</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div class="rag-stage">
+                  <i class="ri-database-2-line"></i>
+                  <strong>Vector store</strong>
+                  <small>Searchable knowledge</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="rag-lane">
+              <div class="rag-lane__label">
+                <strong>2. Answer a question</strong>
+                <small>LangGraph controls this run</small>
+              </div>
+              <div class="rag-pipeline rag-pipeline--query">
+                <div
+                  class="rag-stage"
+                  [class.rag-stage--active]="ragActiveStage === 'question'"
+                  [class.rag-stage--done]="ragChunks.length">
+                  <i class="ri-question-answer-line"></i>
+                  <strong>Question</strong>
+                  <small>{{ ragQuestion || 'Ask below' }}</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div
+                  class="rag-stage"
+                  [class.rag-stage--active]="ragActiveStage === 'retrieve'"
+                  [class.rag-stage--done]="ragChunks.length">
+                  <i class="ri-radar-line"></i>
+                  <strong>Retrieve</strong>
+                  <small>Top 3 similar chunks</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div
+                  class="rag-stage"
+                  [class.rag-stage--active]="ragActiveStage === 'llm'"
+                  [class.rag-stage--done]="ragActiveStage === 'answer'">
+                  <i class="ri-braces-line"></i>
+                  <strong>Context</strong>
+                  <small>Question + evidence</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div
+                  class="rag-stage"
+                  [class.rag-stage--active]="ragActiveStage === 'llm'"
+                  [class.rag-stage--done]="ragActiveStage === 'answer'">
+                  <i class="ri-sparkling-2-line"></i>
+                  <strong>Ollama LLM</strong>
+                  <small>Generate from context</small>
+                </div>
+                <i class="ri-arrow-right-line rag-arrow"></i>
+                <div class="rag-stage" [class.rag-stage--active]="ragActiveStage === 'answer'">
+                  <i class="ri-double-quotes-l"></i>
+                  <strong>Answer</strong>
+                  <small>Grounded + cited</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="rag-roles">
+              <span><strong>LangChain</strong> chunks, embeddings, retrieval, prompts</span>
+              <span><strong>LangGraph</strong> state and retrieve → generate flow</span>
+              <span><strong>Ollama</strong> local embedding and chat models</span>
+            </div>
+
+            @if (ragKnowledgeFiles.length) {
+              <div class="rag-file-list">
+                <div class="rag-evidence__heading">
+                  <strong>{{ isDocRagConcept ? 'Uploaded files' : 'Knowledge files' }}</strong>
+                  <span>
+                    @if (isDocRagConcept) {
+                      {{ ragDocumentCount }} file(s)
+                    } @else {
+                      {{ ragPublicCount }} public · {{ ragPrivateCount }} private
+                    }
+                  </span>
+                </div>
+                <div class="rag-file-chips">
+                  @for (file of ragKnowledgeFiles; track file.path) {
+                    <span [class.rag-file-chip--private]="file.private">
+                      {{ file.name }}
+                      <em>{{ file.visibility }}</em>
+                    </span>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (ragChunks.length) {
+              <div class="rag-evidence">
+                <div class="rag-evidence__heading">
+                  <strong>Retrieved context</strong>
+                  <span>{{ ragChunks.length }} chunks · {{ ragSources.length }} sources</span>
+                </div>
+                <div class="rag-evidence__grid">
+                  @for (chunk of ragChunks; track chunk.rank) {
+                    <article class="rag-chunk" [class.rag-chunk--private]="chunk.private">
+                      <div>
+                        <span>#{{ chunk.rank }}</span>
+                        <strong>{{ chunk.source }}</strong>
+                        <em>{{ chunk.visibility || 'public' }}</em>
+                        <small>character {{ chunk.start_index }}</small>
+                      </div>
+                      <p>{{ chunk.content }}</p>
+                    </article>
+                  }
+                </div>
+              </div>
+            }
+          </section>
+        }
+
+        @for (message of messages; track trackMessage($index, message)) {
+          <article
+            class="message"
+            [class.message--user]="message.role === 'user'"
+            [class.message--assistant]="message.role === 'assistant'">
+            <div class="message__identity" aria-hidden="true">
+              <i [class]="message.role === 'assistant' ? 'ri-sparkling-2-line' : 'ri-user-3-line'"></i>
+            </div>
+
+            <div class="message__body">
+              <div class="message__meta">
+                <strong>{{ message.role === 'assistant' ? 'LangGraph agent' : 'You' }}</strong>
+                <time>{{ message.time | date:'shortTime' }}</time>
+              </div>
+              <p>{{ message.content }}</p>
+
+              @if (message.stats && message.role === 'assistant') {
+                <div class="run-stats">
+                  <span>{{ message.stats.steps }} steps</span>
+                  <span>{{ message.stats.edges_traversed }} edges</span>
+                  <span>{{ message.stats.conditional_decisions }} conditional</span>
+                  <span>{{ message.stats.tool_calls }} tools</span>
+                  <span>{{ message.stats.loops }} loops</span>
+                </div>
+              }
+
+              @if (message.toolEvents?.length) {
+                <div class="tool-trace">
+                  <p class="tool-trace__label">
+                    <i class="ri-tools-line"></i>
+                    Tool trace
+                  </p>
+                  @for (tool of message.toolEvents; track trackTool($index, tool)) {
+                    <div class="tool-event">
+                      <span class="tool-event__name">{{ tool.name }}</span>
+                      <code>{{ formatArgs(tool.args) }}</code>
+                      <span class="tool-event__arrow" aria-hidden="true">→</span>
+                      <strong>{{ tool.result }}</strong>
+                    </div>
+                  }
+                </div>
+              }
+
+              @if (message.webResults?.length) {
+                <div class="web-sources">
+                  <p class="web-sources__label">
+                    <i class="ri-global-line"></i>
+                    Web sources
+                  </p>
+                  <div class="web-sources__grid">
+                    @for (hit of message.webResults; track hit.url + hit.title; let i = $index) {
+                      <a
+                        class="web-source-card"
+                        [href]="hit.url || '#'"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [style.animation-delay]="(i * 60) + 'ms'">
+                        <strong>{{ hit.title }}</strong>
+                        <small>{{ hit.url }}</small>
+                        <p>{{ hit.snippet }}</p>
+                      </a>
+                    }
+                  </div>
+                </div>
+              }
+
+              @if (message.interrupted && hitlPending) {
+                <div class="hitl-actions">
+                  <p>Graph paused before <code>send</code>. Approve to resume.</p>
+                  <button type="button" class="hitl-btn hitl-btn--yes" [disabled]="isSending" (click)="approveHitl(true)">
+                    Approve &amp; resume
+                  </button>
+                  <button type="button" class="hitl-btn hitl-btn--no" [disabled]="isSending" (click)="approveHitl(false)">
+                    Reject
+                  </button>
+                </div>
+              }
+            </div>
+          </article>
+        }
+
+        @if (isSending) {
+          <article class="message message--assistant message--loading">
+            <div class="message__identity" aria-hidden="true">
+              <i [class]="isWebSearchConcept ? 'ri-global-line search-spin' : 'ri-sparkling-2-line'"></i>
+            </div>
+            <div class="message__body">
+              <div class="message__meta"><strong>LangGraph agent</strong></div>
+              @if (isWebSearchConcept) {
+                <div class="web-search-anim" aria-label="Searching the web">
+                  <div class="web-search-anim__orb">
+                    <span class="ring"></span>
+                    <span class="ring ring--delay"></span>
+                    <i class="ri-search-eye-line"></i>
+                  </div>
+                  <div class="web-search-anim__copy">
+                    <strong>{{ searchPulseLabels[searchPulseIndex] }}</strong>
+                    <small>{{ searchPhase === 'reading' ? 'Opening top results' : 'Live internet search' }}</small>
+                    <div class="web-search-anim__bars" aria-hidden="true">
+                      <i></i><i></i><i></i><i></i><i></i>
+                    </div>
+                  </div>
+                </div>
+              } @else {
+                <div class="typing" aria-label="Agent is working">
+                  <span></span><span></span><span></span>
+                  <small>Building graph path…</small>
+                </div>
+              }
+            </div>
+          </article>
+        }
+
+        @if (errorMessage) {
+          <div class="agent-error" role="alert">
+            <i class="ri-error-warning-line"></i>
+            {{ errorMessage }}
+          </div>
+        }
+      </div>
+      }
+
+      <footer class="composer">
+        @if (chatExpanded) {
+        <div class="suggestions" aria-label="Example prompts">
+          @for (suggestion of suggestions; track suggestion) {
+            <button
+              type="button"
+              class="suggestion"
+              [disabled]="isSending"
+              (click)="sendSuggestion(suggestion)">
+              {{ suggestion }}
+            </button>
+          }
+        </div>
+        }
+
+        <form class="composer__form" [formGroup]="promptForm" (ngSubmit)="sendMessage()">
+          @if (supportsWebSearchToggle) {
+            <button
+              type="button"
+              class="composer__search"
+              [class.composer__search--on]="webSearchEnabled || selectedConceptId === 'web_search'"
+              [disabled]="isSending || selectedConceptId === 'web_search'"
+              (click)="toggleWebSearch()"
+              [attr.aria-pressed]="webSearchEnabled"
+              title="Search the web like ChatGPT / Claude">
+              <i class="ri-global-line"></i>
+              <span>{{ webSearchEnabled || selectedConceptId === 'web_search' ? 'Search on' : 'Search' }}</span>
+            </button>
+          }
+          <label for="agent-message" class="visually-hidden">Message the LangGraph agent</label>
+          <textarea
+            id="agent-message"
+            rows="1"
+            formControlName="message"
+            maxlength="4000"
+            [placeholder]="webSearchEnabled || selectedConceptId === 'web_search'
+              ? 'Ask anything — will search the live web…'
+              : isDocRagConcept
+              ? 'Ask about your uploaded documents…'
+              : isRagConcept
+              ? 'Ask a question about the lesson knowledge base…'
+              : 'Ask the selected LangGraph concept…'"
+            (keydown.enter)="$event.preventDefault(); sendMessage()"></textarea>
+          <button
+            type="submit"
+            class="composer__send"
+            [disabled]="promptForm.invalid || isSending"
+            aria-label="Send message">
+            <i [class]="isSending ? 'ri-loader-4-line spin' : 'ri-arrow-up-line'"></i>
+          </button>
+        </form>
+      </footer>
+    </section>
+  </div>
+</main>

@@ -1,0 +1,15 @@
+.venv/
+venv/
+ui/
+docs/
+.git/
+.data/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+*.egg-info/
+.pytest_cache/
+package-lock.json
+agent-transcripts/
