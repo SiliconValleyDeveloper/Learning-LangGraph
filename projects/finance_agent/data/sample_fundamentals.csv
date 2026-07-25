@@ -1,0 +1,57 @@
+symbol,exchange,period_type,period,statement,line_item,value,currency,unit
+RELIANCE,NSE,annual,FY2024,income_statement,Revenue,900000,INR,crore
+RELIANCE,NSE,annual,FY2024,income_statement,EBITDA,160000,INR,crore
+RELIANCE,NSE,annual,FY2024,income_statement,PAT,69000,INR,crore
+RELIANCE,NSE,annual,FY2024,balance_sheet,Total Assets,1750000,INR,crore
+RELIANCE,NSE,annual,FY2024,balance_sheet,Total Equity,780000,INR,crore
+RELIANCE,NSE,annual,FY2024,balance_sheet,Total Debt,320000,INR,crore
+RELIANCE,NSE,annual,FY2024,balance_sheet,Cash And Equivalents,110000,INR,crore
+RELIANCE,NSE,annual,FY2024,cash_flow,Operating Cash Flow,125000,INR,crore
+RELIANCE,NSE,annual,FY2025,income_statement,Revenue,965000,INR,crore
+RELIANCE,NSE,annual,FY2025,income_statement,EBITDA,172000,INR,crore
+RELIANCE,NSE,annual,FY2025,income_statement,PAT,74000,INR,crore
+RELIANCE,NSE,annual,FY2025,balance_sheet,Total Assets,1820000,INR,crore
+RELIANCE,NSE,annual,FY2025,balance_sheet,Total Equity,820000,INR,crore
+RELIANCE,NSE,annual,FY2025,balance_sheet,Total Debt,305000,INR,crore
+RELIANCE,NSE,annual,FY2025,balance_sheet,Cash And Equivalents,125000,INR,crore
+RELIANCE,NSE,annual,FY2025,cash_flow,Operating Cash Flow,138000,INR,crore
+RELIANCE,NSE,quarterly,Q3-FY25,income_statement,Revenue,245000,INR,crore
+RELIANCE,NSE,quarterly,Q3-FY25,income_statement,EBITDA,43000,INR,crore
+RELIANCE,NSE,quarterly,Q3-FY25,income_statement,PAT,18500,INR,crore
+RELIANCE,NSE,quarterly,Q2-FY25,income_statement,Revenue,238000,INR,crore
+RELIANCE,NSE,quarterly,Q2-FY25,income_statement,EBITDA,41500,INR,crore
+RELIANCE,NSE,quarterly,Q2-FY25,income_statement,PAT,17600,INR,crore
+TCS,NSE,annual,FY2024,income_statement,Revenue,240000,INR,crore
+TCS,NSE,annual,FY2024,income_statement,EBITDA,62000,INR,crore
+TCS,NSE,annual,FY2024,income_statement,PAT,46000,INR,crore
+TCS,NSE,annual,FY2024,balance_sheet,Total Assets,155000,INR,crore
+TCS,NSE,annual,FY2024,balance_sheet,Total Equity,105000,INR,crore
+TCS,NSE,annual,FY2024,balance_sheet,Total Debt,8500,INR,crore
+TCS,NSE,annual,FY2024,balance_sheet,Cash And Equivalents,42000,INR,crore
+TCS,NSE,annual,FY2025,income_statement,Revenue,255000,INR,crore
+TCS,NSE,annual,FY2025,income_statement,EBITDA,66000,INR,crore
+TCS,NSE,annual,FY2025,income_statement,PAT,48500,INR,crore
+TCS,NSE,annual,FY2025,balance_sheet,Total Assets,168000,INR,crore
+TCS,NSE,annual,FY2025,balance_sheet,Total Equity,112000,INR,crore
+TCS,NSE,annual,FY2025,balance_sheet,Total Debt,7200,INR,crore
+TCS,NSE,annual,FY2025,balance_sheet,Cash And Equivalents,45500,INR,crore
+TCS,NSE,quarterly,Q3-FY25,income_statement,Revenue,64200,INR,crore
+TCS,NSE,quarterly,Q3-FY25,income_statement,EBITDA,16800,INR,crore
+TCS,NSE,quarterly,Q3-FY25,income_statement,PAT,12400,INR,crore
+INFY,NSE,annual,FY2024,income_statement,Revenue,153000,INR,crore
+INFY,NSE,annual,FY2024,income_statement,EBITDA,38000,INR,crore
+INFY,NSE,annual,FY2024,income_statement,PAT,26000,INR,crore
+INFY,NSE,annual,FY2024,balance_sheet,Total Assets,98000,INR,crore
+INFY,NSE,annual,FY2024,balance_sheet,Total Equity,72000,INR,crore
+INFY,NSE,annual,FY2024,balance_sheet,Total Debt,4200,INR,crore
+INFY,NSE,annual,FY2024,balance_sheet,Cash And Equivalents,28000,INR,crore
+INFY,NSE,annual,FY2025,income_statement,Revenue,162000,INR,crore
+INFY,NSE,annual,FY2025,income_statement,EBITDA,40500,INR,crore
+INFY,NSE,annual,FY2025,income_statement,PAT,27500,INR,crore
+INFY,NSE,annual,FY2025,balance_sheet,Total Assets,105000,INR,crore
+INFY,NSE,annual,FY2025,balance_sheet,Total Equity,76000,INR,crore
+INFY,NSE,annual,FY2025,balance_sheet,Total Debt,3900,INR,crore
+INFY,NSE,annual,FY2025,balance_sheet,Cash And Equivalents,30500,INR,crore
+INFY,NSE,quarterly,Q3-FY25,income_statement,Revenue,40900,INR,crore
+INFY,NSE,quarterly,Q3-FY25,income_statement,EBITDA,10200,INR,crore
+INFY,NSE,quarterly,Q3-FY25,income_statement,PAT,6900,INR,crore

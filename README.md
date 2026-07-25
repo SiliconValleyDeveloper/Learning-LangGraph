@@ -82,6 +82,7 @@ You learn by **running code**, then **watching the same idea in the visual lab**
 | `projects/doc_upload_rag/` | Dynamic doc upload Q&A |
 | `projects/advanced_chatbot/` | Advanced chatbot · OCR · pgvector-ready |
 | `projects/rag_architect/` | Enterprise KB · hybrid / HyDE / CRAG / Graph RAG lab |
+| `projects/finance_agent/` | Markets **analysis** UI `/finance` · NSE/BSE ingest · Zerodha quotes → DB → API · Redis · research agent (**F4**) |
 | `deploy/` | Docker Compose for Postgres + pgvector + API |
 
 ---

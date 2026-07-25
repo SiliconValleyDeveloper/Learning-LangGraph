@@ -1,0 +1,15 @@
+Reliance Industries — Board meeting outcome / dividend (sample announcement)
+============================================================================
+Document type: announcement
+Symbol: RELIANCE | Exchange: NSE | Dated: 2025-04-18
+Source: sample (synthetic)
+
+The Board of Directors approved the audited financial results for the year ended
+31 March 2025 and recommended a final dividend subject to shareholder approval.
+The company also noted completion of certain subsidiary restructuring steps disclosed
+earlier. Investors are advised to refer to the official exchange PDF for definitive
+terms. This sample announcement exists so the filings RAG demo can retrieve short
+exchange-style notices alongside longer annual-report excerpts.
+
+Debt note: treasury confirmed no material change to the previously disclosed net-debt
+trajectory for the quarter. Liquidity remains adequate for committed capex.

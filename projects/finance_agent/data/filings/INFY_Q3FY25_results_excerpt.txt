@@ -1,0 +1,26 @@
+Infosys Limited — Q3 FY2025 results commentary (sample excerpt)
+==============================================================
+Document type: results_commentary
+Symbol: INFY | Exchange: NSE | Period: Q3-FY25
+Source: sample (synthetic learning text — not an official filing)
+
+1. Quarter highlights
+---------------------
+Revenue grew sequentially with broad-based contribution from financial services and
+manufacturing. Large deal wins included multi-year application modernisation programs.
+Operating margin was stable quarter-on-quarter. Free cash flow remained healthy.
+Management reiterated focus on utilisation, pyramid, and automated delivery.
+
+2. Generative AI and offerings
+------------------------------
+The company expanded its generative AI client conversations. Many engagements start as
+proofs of concept tied to knowledge management, coding assistants, and customer service
+copilots. Management cautioned that monetisation timelines vary and that clients demand
+clear ROI before scaling. Partnerships with hyperscalers remain central to delivery.
+
+3. Outlook language (non-guidance disclaimer)
+---------------------------------------------
+Comments on demand are directional and do not constitute securities price guidance.
+Risks include slower discretionary spend, wage inflation, and geopolitical disruption
+to delivery locations. This text is fictional sample content for embedding and
+dynamic rerank exercises in the finance agent lab.

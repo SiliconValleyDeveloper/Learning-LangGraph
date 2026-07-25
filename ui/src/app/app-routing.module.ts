@@ -13,6 +13,11 @@ const routes: Routes = [
         loadChildren: () =>
           import('./pages/apps/apps.module').then(module => module.AppsModule)
       },
+      {
+        path: 'finance',
+        loadChildren: () =>
+          import('./pages/apps/finance/finance.module').then(module => module.FinanceModule)
+      },
       { path: '', pathMatch: 'full', redirectTo: 'chat' }
     ]
   },

@@ -23,3 +23,7 @@ sentence-transformers>=3.0.0
 # MCP tools → LangChain/LangGraph (Phase 13):
 langchain-mcp-adapters>=0.1.0
 mcp>=1.0.0
+# Finance agent (F1+): Redis cache / locks / queues
+redis>=5.0.0
+# Optional live India quotes (F3) — only needed when FINANCE_QUOTE_SOURCE=kite|auto with tokens
+kiteconnect>=5.0.0

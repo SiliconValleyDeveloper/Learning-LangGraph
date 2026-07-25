@@ -1,0 +1,72 @@
+<section class="dash" aria-label="Finance dashboard">
+  <div class="dash-toolbar">
+    <div class="status-pill" [class.status-pill--online]="isOnline">
+      <span>{{ isOnline ? 'API online' : 'API offline' }}</span>
+      <small>
+        {{ status?.quote?.resolved_source || '—' }}
+        · ticks {{ status?.quote?.ticks_total ?? '—' }}
+        · companies {{ status?.ingest?.companies ?? '—' }}
+      </small>
+      <small>auth {{ status?.api_auth_required ? 'required' : 'optional' }} · not a broker</small>
+    </div>
+
+    <div class="key-box" [formGroup]="keyForm">
+      <label>
+        <span>API key</span>
+        <input type="password" formControlName="apiKey" placeholder="fk_…" />
+      </label>
+      <button type="button" class="btn" (click)="saveKey()">Save</button>
+      <button type="button" class="btn btn--ghost" (click)="clearKey()">Clear</button>
+      <button type="button" class="btn btn--accent" (click)="refreshQuotes()" [disabled]="loading">
+        {{ loading ? 'Refreshing…' : 'Refresh quotes' }}
+      </button>
+    </div>
+  </div>
+
+  @if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  }
+
+  <div class="tile-groups">
+    @for (group of groups; track group.id) {
+      <section class="tile-group">
+        <header>
+          <h2>{{ group.title }}</h2>
+          <a [routerLink]="['/finance/markets', group.id === 'stocks' ? 'stocks' : group.id]">View all</a>
+        </header>
+        <div class="tiles">
+          @for (symbol of group.symbols; track symbol) {
+            <a class="tile" [routerLink]="symbolLink(symbol)">
+              <div class="tile-top">
+                <strong>{{ symbol }}</strong>
+                <span class="chg" [class]="changeClass(quoteFor(symbol))">
+                  @if (quoteFor(symbol); as q) {
+                    {{ q.change_pct != null ? (q.change_pct > 0 ? '+' : '') + (q.change_pct | number: '1.2-2') + '%' : '—' }}
+                  } @else {
+                    —
+                  }
+                </span>
+              </div>
+              <div class="ltp">
+                @if (quoteFor(symbol); as q) {
+                  {{ q.ltp | number: '1.2-2' }}
+                } @else {
+                  <span class="muted">No quote</span>
+                }
+              </div>
+              <div class="meta">
+                {{ quoteFor(symbol)?.name || 'Tap for detail' }}
+                · {{ quoteFor(symbol)?.source || '—' }}
+              </div>
+            </a>
+          }
+        </div>
+      </section>
+    }
+  </div>
+
+  <p class="footnote">
+    Sample mode until Kite tokens are set. Corp actions &amp; company master come from F2 ingest.
+    Agent / filings arrive in later phases.
+  </p>
+</section>

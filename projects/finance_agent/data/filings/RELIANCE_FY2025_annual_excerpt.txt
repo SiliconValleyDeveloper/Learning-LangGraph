@@ -1,0 +1,42 @@
+Reliance Industries Limited — Annual Report FY2025 (sample excerpt)
+===================================================================
+Document type: annual_report
+Symbol: RELIANCE | Exchange: NSE | Period: FY2025
+Source: sample (synthetic learning text — not an official filing)
+
+1. Management discussion — capital allocation
+--------------------------------------------
+The Board continues to prioritise disciplined capital allocation across oil-to-chemicals,
+retail, and digital services. Net debt reduced during the year as free cash flow from
+the energy business funded growth capex in retail and Jio platforms. Management reiterated
+that leverage will remain within the Board-approved band and that surplus cash after
+maintenance capex may support shareholder returns.
+
+2. Debt and liquidity
+---------------------
+Gross debt declined modestly year-on-year. Cash and cash equivalents rose, supported by
+operating cash flows. The company maintains undrawn bank lines and a diversified maturity
+profile. Interest coverage remained comfortable. Currency exposure on overseas borrowings
+is partially hedged. Contingent liabilities related to tax and regulatory matters are
+disclosed in the notes; no material new contingent liabilities were recognised in FY2025.
+
+3. Segment commentary — energy
+------------------------------
+Refining margins normalised versus the prior peak cycle. Petrochemical volumes improved
+on domestic demand recovery. Exploration & production contribution remained stable. The
+company highlighted progress on new energy initiatives including solar manufacturing and
+battery storage pilots, which remain early-stage relative to core O2C cash generation.
+
+4. Segment commentary — retail and digital
+------------------------------------------
+Retail footprint expansion continued with higher same-store sales in grocery and fashion.
+Jio subscriber growth and ARPU trends supported digital EBITDA. Management stated that
+integration of merchant partnerships and fintech pilots will be measured against unit
+economics rather than vanity metrics. Capex intensity in retail is expected to moderate
+as store density in key cities approaches target coverage.
+
+5. Outlook and risks
+--------------------
+Key risks include crude price volatility, regulatory changes in telecom and retail,
+and execution risk on new energy projects. The company does not provide forward price
+guidance for securities. This sample excerpt is for RAG learning only.

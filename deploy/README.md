@@ -1,8 +1,10 @@
-# Deploy — Advanced chatbot API + Postgres/pgvector
+# Deploy — Lab API + Postgres/pgvector + Redis (finance F1)
 
-Full start & deploy process for the advanced chatbot stack.
+Full start & deploy process for the advanced chatbot + finance infra stack.
 
-Also covered in: [`projects/advanced_chatbot/FLOW_AND_LEARNING.md`](../projects/advanced_chatbot/FLOW_AND_LEARNING.md) §6.
+Also covered in:
+- [`projects/advanced_chatbot/FLOW_AND_LEARNING.md`](../projects/advanced_chatbot/FLOW_AND_LEARNING.md) §6
+- [`projects/finance_agent/WORKFLOW.md`](../projects/finance_agent/WORKFLOW.md) (F1)
 
 ---
 
@@ -12,6 +14,7 @@ Also covered in: [`projects/advanced_chatbot/FLOW_AND_LEARNING.md`](../projects/
 |-------|------------------|------------------------|
 | Ollama (chat + embeds) | Host `:11434` | Host `:11434` (via `host.docker.internal`) |
 | Postgres + pgvector | Docker `:5433` | Docker `:5433` |
+| Redis | Docker `:6379` | Docker `:6379` |
 | FastAPI | Host uvicorn `:8000` | Container `:8001` |
 | Angular lab | Host `:4200` | Host `:4200` (point `apiUrl` at API) |
 | pgweb | Docker `:8082` | Docker `:8082` |
@@ -37,10 +40,19 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text
 ```
 
-### 2. Start DB + DB UIs
+### 2. Start DB + Redis + DB UIs
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d db db-ui adminer
+docker compose -f deploy/docker-compose.yml up -d db redis db-ui adminer
+```
+
+### 2b. Finance F1 schema (once)
+
+```bash
+source .venv/bin/activate
+# ensure DATABASE_URL points at localhost:5433
+python -m projects.finance_agent.migrate
+python -m projects.finance_agent.migrate --status
 ```
 
 ### 3. `.env` at repo root
@@ -48,6 +60,8 @@ docker compose -f deploy/docker-compose.yml up -d db db-ui adminer
 ```env
 VECTOR_BACKEND=pgvector
 DATABASE_URL=postgresql://langgraph:langgraph@localhost:5433/langgraph
+REDIS_URL=redis://localhost:6379/0
+FINANCE_ENABLED=true
 EMBED_DIMS=768
 OCR_PROVIDER=auto
 OLLAMA_BASE_URL=http://127.0.0.1:11434
@@ -70,12 +84,14 @@ cd ui && npm start
 - API: http://localhost:8000
 - pgweb: http://localhost:8082
 - Adminer: http://localhost:8083 (Server `db`, user/password/db `langgraph`)
+- Redis: `localhost:6379`
 
 ### 5. Smoke check
 
 ```bash
 curl http://localhost:8000/api/advanced-chat/status
 curl http://localhost:8000/api/health
+python -m projects.finance_agent.migrate --status
 ```
 
 ---

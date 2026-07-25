@@ -1,0 +1,102 @@
+:host {
+  display: block;
+}
+
+.markets {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.markets-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+
+  h2 {
+    margin: 0;
+    font-family: "Sora", "Trebuchet MS", sans-serif;
+    font-size: 1.15rem;
+  }
+
+  p {
+    margin: 0.25rem 0 0;
+    color: rgba(15, 28, 36, 0.58);
+    font-size: 0.88rem;
+  }
+}
+
+.btn {
+  padding: 0.42rem 0.7rem;
+  border: 1px solid rgba(15, 28, 36, 0.18);
+  border-radius: 0.45rem;
+  background: #0d6e6e;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+  }
+}
+
+.error {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.55rem;
+  background: rgba(179, 58, 58, 0.1);
+  color: #8a2a2a;
+  font-size: 0.88rem;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid rgba(15, 28, 36, 0.12);
+  border-radius: 0.75rem;
+  background: rgba(248, 251, 252, 0.92);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+
+  th,
+  td {
+    padding: 0.65rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(15, 28, 36, 0.08);
+  }
+
+  th {
+    color: rgba(15, 28, 36, 0.55);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  small {
+    display: block;
+    color: rgba(15, 28, 36, 0.45);
+    font-size: 0.72rem;
+  }
+
+  a {
+    color: #0d6e6e;
+    font-weight: 600;
+    text-decoration: none;
+  }
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.up {
+  color: #1a7a4c;
+}
+
+.down {
+  color: #b33a3a;
+}

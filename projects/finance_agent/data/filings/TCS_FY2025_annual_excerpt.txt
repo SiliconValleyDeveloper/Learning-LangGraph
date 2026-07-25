@@ -1,0 +1,34 @@
+Tata Consultancy Services Limited — Annual Report FY2025 (sample excerpt)
+=========================================================================
+Document type: annual_report
+Symbol: TCS | Exchange: NSE | Period: FY2025
+Source: sample (synthetic learning text — not an official filing)
+
+1. Demand environment
+---------------------
+Enterprise clients remained selective on discretionary transformation programs while
+continuing to fund cost optimisation, cloud migration, and cyber resilience. Deal
+TCVs improved in the second half. Attrition moderated versus the prior year, supporting
+delivery capacity. Management emphasised pricing discipline and pyramid optimisation.
+
+2. Vertical and geographic mix
+------------------------------
+BFSI and retail verticals contributed the largest share of revenue. North America
+remained the primary geography; continental Europe showed gradual recovery. Emerging
+markets growth was healthy but on a smaller base. The company noted that generative AI
+engagements are often embedded inside larger transformation deals rather than sold as
+standalone products.
+
+3. Margins and capital returns
+------------------------------
+Operating margins stayed within the guided band despite wage inflation. Free cash flow
+conversion remained strong. The Board declared dividends consistent with the capital
+allocation framework. Buybacks, when executed, are disclosed separately via exchange
+filings. Cash and bank balances remain substantial relative to debt, which is minimal.
+
+4. People and risk
+------------------
+Headcount growth was measured. Subcontractor mix was managed to protect margins. Key
+risks include prolonged client decision cycles, visa and mobility constraints, currency
+translation, and competition for specialised AI talent. This excerpt is synthetic and
+intended only for local RAG / rerank demos.

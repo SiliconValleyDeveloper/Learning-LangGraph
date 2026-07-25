@@ -1,0 +1,63 @@
+<section class="markets" aria-label="Markets list">
+  <header class="markets-head">
+    <div>
+      <h2>{{ meta.title }}</h2>
+      <p>{{ meta.blurb }}</p>
+    </div>
+    <button type="button" class="btn" (click)="load()" [disabled]="loading">
+      {{ loading ? 'Loading…' : 'Reload' }}
+    </button>
+  </header>
+
+  @if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  }
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Name</th>
+          <th>Exchange</th>
+          <th>LTP</th>
+          <th>Change</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.exchange + row.symbol) {
+          <tr>
+            <td class="mono">{{ row.symbol }}</td>
+            <td>
+              {{ row.name }}
+              @if (row.sector) {
+                <small>{{ row.sector }}</small>
+              }
+            </td>
+            <td>{{ row.exchange }}</td>
+            <td class="mono">
+              {{ quoteFor(row.symbol)?.ltp != null ? (quoteFor(row.symbol)!.ltp | number: '1.2-2') : '—' }}
+            </td>
+            <td
+              class="mono"
+              [class.up]="(quoteFor(row.symbol)?.change_pct ?? 0) > 0"
+              [class.down]="(quoteFor(row.symbol)?.change_pct ?? 0) < 0"
+            >
+              @if (quoteFor(row.symbol)?.change_pct != null) {
+                {{ quoteFor(row.symbol)!.change_pct! > 0 ? '+' : '' }}{{ quoteFor(row.symbol)!.change_pct | number: '1.2-2' }}%
+              } @else {
+                —
+              }
+            </td>
+            <td>
+              <a [routerLink]="['/finance/symbol', row.symbol]" [queryParams]="{ exchange: row.exchange }">
+                Open
+              </a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>

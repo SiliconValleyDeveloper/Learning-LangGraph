@@ -1,0 +1,101 @@
+<section class="agent-console">
+  <header>
+    <div>
+      <p class="eyebrow">F7 · LangGraph</p>
+      <h2>Analysis agent</h2>
+      <p class="lede">Read-only L1 observation and L2 cited research. No brokerage actions.</p>
+    </div>
+    <span class="guardrail">No buy / sell / orders</span>
+  </header>
+
+  <form class="agent-form" (submit)="$event.preventDefault(); run()">
+    <div class="fields">
+      <label>
+        Symbol
+        <input name="symbol" [(ngModel)]="symbol" maxlength="32" />
+      </label>
+      <label>
+        Exchange
+        <select name="exchange" [(ngModel)]="exchange">
+          <option value="NSE">NSE</option>
+          <option value="BSE">BSE</option>
+        </select>
+      </label>
+      <label>
+        Autonomy
+        <select name="level" [(ngModel)]="level">
+          <option value="L1">L1 · Observe</option>
+          <option value="L2">L2 · Analyze</option>
+        </select>
+      </label>
+    </div>
+
+    <label>
+      Research question
+      <textarea name="question" [(ngModel)]="question" rows="4" maxlength="2000"></textarea>
+    </label>
+    <button type="submit" [disabled]="loading || !question.trim() || !symbol.trim()">
+      {{ loading ? 'Running graph…' : 'Run analysis' }}
+    </button>
+  </form>
+
+  <p class="scope-note">
+    Requires an API key with <code>research:read</code> (admin tier in F7).
+  </p>
+
+  @if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  }
+
+  @if (result) {
+    <article class="result">
+      <div class="result-head">
+        <div>
+          <span class="intent">{{ result.intent }}</span>
+          <span>{{ result.level }} · {{ result.symbol }} · {{ result.exchange }}</span>
+        </div>
+        <span [class.verified]="result.verified">
+          {{ result.verified ? 'Grounding verified' : 'Check evidence' }}
+        </span>
+      </div>
+
+      <p class="route">{{ result.route_reason }}</p>
+      <div class="answer">{{ result.answer }}</div>
+
+      <section>
+        <h3>Tool trace</h3>
+        <ol class="trace">
+          @for (step of result.tool_trace; track step.tool) {
+            <li>
+              <strong>{{ step.tool }}</strong>
+              <span [class.failed]="step.status !== 'ok'">{{ step.status }}</span>
+              @if (step.items != null) {
+                <span>{{ step.items }} items</span>
+              }
+              @if (step.detail) {
+                <span>{{ step.detail }}</span>
+              }
+            </li>
+          }
+        </ol>
+      </section>
+
+      <section>
+        <h3>Citations</h3>
+        @if (!result.citations.length) {
+          <p class="muted">No evidence citations (policy response or no local evidence).</p>
+        } @else {
+          <ul class="citations">
+            @for (cite of result.citations; track cite.id) {
+              <li>
+                <strong>[{{ cite.id }}]</strong>
+                <span>{{ cite.kind }}</span>
+                <span>{{ cite.title || cite.source }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    </article>
+  }
+</section>

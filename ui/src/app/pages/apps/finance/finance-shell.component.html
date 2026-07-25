@@ -1,0 +1,27 @@
+<div class="finance-shell">
+  <header class="finance-hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Project · Analysis only</p>
+      <h1>Finance</h1>
+      <p class="lede">
+        India-first markets dashboard — live quotes, exchange knowledge, and research.
+        <strong>No buy / sell.</strong>
+      </p>
+    </div>
+    <nav class="finance-nav" aria-label="Finance sections">
+      <a routerLink="/finance" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        Dashboard
+      </a>
+      <a routerLink="/finance/markets/stocks" routerLinkActive="active">Stocks</a>
+      <a routerLink="/finance/markets/indices" routerLinkActive="active">Indices</a>
+      <a routerLink="/finance/markets/commodities" routerLinkActive="active">Commodities</a>
+      <a routerLink="/finance/markets/fx" routerLinkActive="active">FX</a>
+      <a routerLink="/finance/watchlist" routerLinkActive="active">Watchlist</a>
+      <a routerLink="/finance/agent" routerLinkActive="active">Agent</a>
+    </nav>
+  </header>
+
+  <div class="finance-outlet">
+    <router-outlet></router-outlet>
+  </div>
+</div>

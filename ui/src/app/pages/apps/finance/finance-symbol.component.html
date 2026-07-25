@@ -1,0 +1,249 @@
+<section class="symbol" aria-label="Symbol detail">
+  <a class="back" routerLink="/finance">← Dashboard</a>
+
+  <header class="symbol-head">
+    <div>
+      <p class="eyebrow">{{ exchange }} · analysis</p>
+      <h2>{{ symbol }}</h2>
+      <p class="name">{{ quote?.name || 'Loading…' }}</p>
+    </div>
+    <div class="price-box">
+      @if (loading) {
+        <span class="muted">Loading…</span>
+      } @else if (quote) {
+        <div class="ltp">{{ quote.ltp | number: '1.2-2' }}</div>
+        <div
+          class="chg"
+          [class.up]="(quote.change_pct ?? 0) >= 0"
+          [class.down]="(quote.change_pct ?? 0) < 0"
+        >
+          {{ quote.change_pct != null ? ((quote.change_pct > 0 ? '+' : '') + (quote.change_pct | number: '1.2-2') + '%') : '—' }}
+          · {{ quote.source }}
+        </div>
+      } @else {
+        <span class="muted">No quote</span>
+      }
+    </div>
+  </header>
+
+  @if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  }
+
+  <nav class="tabs" aria-label="Symbol tabs">
+    @for (t of tabs; track t.id) {
+      <button
+        type="button"
+        [class.active]="tab === t.id"
+        (click)="setTab(t.id)"
+      >
+        {{ t.label }}
+        @if (!t.ready) {
+          <span class="soon">soon</span>
+        }
+      </button>
+    }
+  </nav>
+
+  @if (tab === 'overview') {
+    <div class="panel">
+      <h3>Overview</h3>
+      <dl class="facts">
+        <div><dt>Bid</dt><dd>{{ quote?.bid != null ? (quote!.bid | number: '1.2-2') : '—' }}</dd></div>
+        <div><dt>Ask</dt><dd>{{ quote?.ask != null ? (quote!.ask | number: '1.2-2') : '—' }}</dd></div>
+        <div><dt>Volume</dt><dd>{{ quote?.volume != null ? (quote!.volume | number) : '—' }}</dd></div>
+        <div><dt>As of</dt><dd class="mono">{{ quote?.ts || '—' }}</dd></div>
+      </dl>
+      <p class="note">Quotes from Redis / Kite sample pipeline (F3). Fundamentals F5; filings RAG F6.</p>
+    </div>
+  }
+
+  @if (tab === 'fundamentals') {
+    <div class="panel">
+      <div class="fund-head">
+        <h3>Fundamentals</h3>
+        <button type="button" class="ghost" (click)="loadFundamentals()" [disabled]="fundamentalsLoading">
+          Refresh
+        </button>
+      </div>
+
+      @if (fundamentalsLoading) {
+        <p class="muted">Loading statements…</p>
+      } @else if (fundamentalsError) {
+        <p class="error" role="alert">{{ fundamentalsError }}</p>
+      } @else if (!fundamentals?.count) {
+        <p class="muted">
+          No fundamentals for {{ symbol }}. Run
+          <code>python -m projects.finance_agent.fundamentals ingest</code>
+        </p>
+      } @else {
+        <div class="period-pills" role="tablist" aria-label="Reporting periods">
+          @for (p of fundamentals!.available_periods; track periodKey(p)) {
+            <button
+              type="button"
+              role="tab"
+              [class.active]="selectedPeriodKey === periodKey(p)"
+              (click)="selectPeriod(periodKey(p))"
+            >
+              {{ periodLabel(p) }}
+            </button>
+          }
+        </div>
+
+        @if (!statementBlocks.length) {
+          <p class="muted">No line items for this period.</p>
+        } @else {
+          @for (block of statementBlocks; track block.key) {
+            <section class="statement">
+              <h4>{{ block.label }}</h4>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Line item</th>
+                    <th class="num">Value</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (line of block.lines; track line.line_item) {
+                    <tr>
+                      <td>{{ line.line_item }}</td>
+                      <td class="num mono">
+                        {{ line.value != null ? (line.value | number: '1.0-2') : '—' }}
+                      </td>
+                      <td class="muted">{{ line.unit || line.currency }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </section>
+          }
+          <p class="note">
+            Sample INR crore figures for learning (F5). Source:
+            {{ fundamentals!.lines[0]?.source || 'sample' }}.
+          </p>
+        }
+      }
+    </div>
+  }
+
+  @if (tab === 'filings') {
+    <div class="panel">
+      <div class="fund-head">
+        <h3>Filings</h3>
+        <button type="button" class="ghost" (click)="loadFilings()" [disabled]="filingsLoading">
+          Refresh
+        </button>
+      </div>
+
+      @if (filingsLoading) {
+        <p class="muted">Loading documents…</p>
+      } @else if (filingsError) {
+        <p class="error" role="alert">{{ filingsError }}</p>
+      } @else if (!filingDocs.length) {
+        <p class="muted">
+          No filings for {{ symbol }}. Run
+          <code>python -m projects.finance_agent.filings ingest</code>
+        </p>
+      } @else {
+        <ul class="doc-list">
+          @for (d of filingDocs; track d.id) {
+            <li>
+              <strong>{{ d.title }}</strong>
+              <span class="muted">{{ d.doc_type }} · {{ d.chunk_count }} chunks · {{ d.filename }}</span>
+            </li>
+          }
+        </ul>
+      }
+
+      <form class="search-row" (submit)="$event.preventDefault(); searchFilings()">
+        <label class="sr-only" for="filing-q">Ask a question about filings</label>
+        <input
+          id="filing-q"
+          type="search"
+          name="filingQuery"
+          [(ngModel)]="filingQuery"
+          placeholder="Ask about debt, margins, outlook…"
+        />
+        <button type="submit" [disabled]="filingSearchLoading || !filingQuery.trim()">
+          {{ filingSearchLoading ? 'Searching…' : 'Search' }}
+        </button>
+      </form>
+
+      @if (filingSearchError) {
+        <p class="error" role="alert">{{ filingSearchError }}</p>
+      }
+
+      @if (filingSearch) {
+        <p class="note">
+          Retrieved {{ filingSearch.retrieve_candidates }} → reranked top
+          {{ filingSearch.count }}
+          (embed: {{ filingSearch.embed_backend }}, rerank: {{ filingSearch.rerank_backend }})
+        </p>
+        @if (!filingSearch.chunks.length) {
+          <p class="muted">No matching chunks.</p>
+        } @else {
+          <ol class="chunk-list">
+            @for (c of filingSearch.chunks; track trackChunk(c)) {
+              <li>
+                <div class="chunk-meta">
+                  <span class="rank">#{{ c.rank }}</span>
+                  <span class="mono">{{ c.source }}</span>
+                  <span class="muted">
+                    rerank {{ c.rerank_score | number: '1.2-3' }}
+                    · vec {{ c.vector_score | number: '1.2-3' }}
+                  </span>
+                </div>
+                <p class="chunk-body">{{ c.preview }}</p>
+              </li>
+            }
+          </ol>
+        }
+      }
+    </div>
+  }
+
+  @if (tab === 'actions') {
+    <div class="panel">
+      <h3>Corporate actions</h3>
+      @if (!actions.length) {
+        <p class="muted">No corp actions for this symbol yet. Run F2 ingest.</p>
+      } @else {
+        <ul class="action-list">
+          @for (a of actions; track a.action_type + (a.ex_date || '') + a.symbol) {
+            <li>
+              <strong>{{ a.action_type }}</strong>
+              <span>{{ a.ex_date || '—' }}</span>
+              <span>
+                @if (a.amount != null) {
+                  {{ a.amount | number: '1.2-2' }} {{ a.currency }}
+                } @else if (a.ratio) {
+                  {{ a.ratio }}
+                } @else {
+                  —
+                }
+              </span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
+  @if (tab === 'agent') {
+    <div class="panel">
+      <h3>Agent</h3>
+      <p class="note">
+        Run the F7 LangGraph workflow across quotes, fundamentals, actions, and reranked
+        filing evidence. Analysis only — no orders.
+      </p>
+      <a
+        class="agent-link"
+        routerLink="/finance/agent"
+        [queryParams]="{ symbol: symbol }"
+      >
+        Open {{ symbol }} in Agent console
+      </a>
+    </div>
+  }
+</section>

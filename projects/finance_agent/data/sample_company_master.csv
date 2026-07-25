@@ -1,0 +1,14 @@
+symbol,exchange,isin,name,series,status,sector,industry
+RELIANCE,NSE,INE002A01018,Reliance Industries Limited,EQ,active,Energy,Refineries
+TCS,NSE,INE467B01029,Tata Consultancy Services Limited,EQ,active,IT,IT Services
+INFY,NSE,INE009A01021,Infosys Limited,EQ,active,IT,IT Services
+HDFCBANK,NSE,INE040A01034,HDFC Bank Limited,EQ,active,Financials,Private Bank
+ICICIBANK,NSE,INE090A01021,ICICI Bank Limited,EQ,active,Financials,Private Bank
+SBIN,NSE,INE062A01020,State Bank of India,EQ,active,Financials,Public Bank
+ITC,NSE,INE154A01025,ITC Limited,EQ,active,Consumer Staples,FMCG
+LT,NSE,INE018A01030,Larsen & Toubro Limited,EQ,active,Industrials,Construction
+HINDUNILVR,NSE,INE030A01027,Hindustan Unilever Limited,EQ,active,Consumer Staples,FMCG
+BHARTIARTL,NSE,INE397D01024,Bharti Airtel Limited,EQ,active,Communication,Telecom
+RELIANCE,BSE,INE002A01018,Reliance Industries Limited,A,active,Energy,Refineries
+TCS,BSE,INE467B01029,Tata Consultancy Services Limited,A,active,IT,IT Services
+INFY,BSE,INE009A01021,Infosys Limited,A,active,IT,IT Services
