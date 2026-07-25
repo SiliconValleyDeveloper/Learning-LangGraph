@@ -25,6 +25,8 @@ Start with the root [`README.md`](../README.md) for:
 | 9 | `09_web_search/` | Live internet search + sourced answers | Yes (`web_search`) |
 | 10 | `10_person_finder/` | Person research + extract + reflect | Yes (`person_finder`) + app |
 | 11 | `11_rag_llm_ecosystem/` | LLMs, Lang stack, embeddings, RAG (+ complex loop) | Yes (`rag`, `rag_complex`) |
+| 12 | `12_rag_architect/` | Hybrid, HyDE, CRAG, Graph RAG, eval, index tradeoffs | CLI + UI · [FLOW_AND_LEARNING.md](12_rag_architect/FLOW_AND_LEARNING.md) |
+| 13 | `13_mcp_langgraph/` | MCP servers → LangGraph ReAct + Ollama | CLI · [FLOW_AND_LEARNING.md](13_mcp_langgraph/FLOW_AND_LEARNING.md) |
 
 ## Run a lesson (CLI)
 
@@ -47,6 +49,18 @@ python Learning/11_rag_llm_ecosystem/03_chunk_embed.py
 python Learning/11_rag_llm_ecosystem/04_retrieve.py
 python Learning/11_rag_llm_ecosystem/05_rag_graph.py
 python Learning/11_rag_llm_ecosystem/06_complex_rag_graph.py
+
+python Learning/12_rag_architect/01_enterprise_layers.py
+python Learning/12_rag_architect/02_chunking_strategies.py
+python Learning/12_rag_architect/03_hybrid_retrieval.py
+python Learning/12_rag_architect/04_hyde_and_query_opt.py
+python Learning/12_rag_architect/05_crag_self_rag.py
+python Learning/12_rag_architect/06_graph_rag_light.py
+python Learning/12_rag_architect/07_evaluate_rag.py
+python Learning/12_rag_architect/08_index_tradeoffs.py
+
+python Learning/13_mcp_langgraph/01_mcp_tools_agent.py
+python Learning/13_mcp_langgraph/02_mcp_yahoo_optional.py
 ```
 
 ## Visual lab
@@ -55,8 +69,11 @@ python Learning/11_rag_llm_ecosystem/06_complex_rag_graph.py
 uvicorn api.main:app --reload --port 8000
 cd ui && npm start
 # → http://localhost:4200/chat
+# → http://localhost:4200/chat/mcp          (MCP · LangGraph · LLM)
 # → http://localhost:4200/chat/person-finder
 ```
+
+Open the lab and pick the **MCP · LangGraph · LLM** chip (or use the topbar **MCP Agent** link).
 
 ## Shared helpers
 
@@ -64,8 +81,10 @@ cd ui && npm start
 - `visualize.py` — ASCII + Mermaid diagram helpers
 - `concepts/catalog.py` — topology + runners for the visual lab
 
-Phase 11 also needs the local embedding model:
+Phases 11–12 also need the local embedding model:
 
 ```bash
 ollama pull nomic-embed-text
 ```
+
+Phase 12 project: `projects/rag_architect/` (hybrid / HyDE / CRAG / Graph RAG / eval).

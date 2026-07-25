@@ -135,6 +135,68 @@
   box-shadow: 0 0 0 0.15rem rgba(12, 124, 118, 0.12);
 }
 
+.concept-chip--mcp {
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.concept-chip--mcp.concept-chip--active {
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 0 0.15rem rgba(37, 99, 235, 0.12);
+}
+
+.mcp-banner {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.06), rgba(12, 124, 118, 0.05));
+}
+
+.mcp-banner__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+
+  i {
+    color: #2563eb;
+  }
+
+  span {
+    margin-left: auto;
+    color: rgba(15, 42, 50, 0.5);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+  }
+}
+
+.mcp-banner__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+
+  code {
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.4rem;
+    background: rgba(255, 255, 255, 0.85);
+    font-size: 0.62rem;
+    color: #1e3a8a;
+  }
+}
+
+.mcp-banner__hint {
+  margin: 0;
+  color: rgba(15, 42, 50, 0.62);
+  font-size: 0.62rem;
+  line-height: 1.4;
+
+  code {
+    font-size: 0.58rem;
+  }
+}
+
 .teach-list {
   margin: 0;
   padding-left: 1rem;
@@ -741,6 +803,19 @@ h1 {
     border-color: rgba(12, 124, 118, 0.45);
     background: var(--agent-mint);
   }
+
+  &--label {
+    width: auto;
+    grid-auto-flow: column;
+    gap: 0.28rem;
+    padding: 0 0.55rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+
+    i {
+      font-size: 0.95rem;
+    }
+  }
 }
 
 .conversation__stream {
@@ -761,6 +836,10 @@ h1 {
     radial-gradient(circle at 100% 0%, rgba(12, 124, 118, 0.12), transparent 36%),
     linear-gradient(145deg, #f8fcfb, #f2f8f6);
   box-shadow: 0 0.5rem 1.4rem rgba(15, 42, 50, 0.06);
+
+  &--collapsed {
+    gap: 0;
+  }
 }
 
 .rag-visualizer__heading,
@@ -774,6 +853,34 @@ h1 {
     margin: 0;
     font-family: var(--font-display);
     font-size: 1rem;
+  }
+}
+
+.rag-visualizer__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.rag-explain {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(12, 124, 118, 0.16);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.72);
+
+  p {
+    margin: 0;
+    color: rgba(15, 42, 50, 0.78);
+    font-size: 0.78rem;
+    line-height: 1.45;
+  }
+
+  strong {
+    color: var(--agent-teal-dark);
   }
 }
 

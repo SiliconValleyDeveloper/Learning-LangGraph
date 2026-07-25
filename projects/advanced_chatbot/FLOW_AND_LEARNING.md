@@ -85,10 +85,10 @@ understand ──▶ intent: chat | documents | web | hybrid
          ▼
       rewrite ──▶ better retrieval/search query (+ multi-query list)
          │
-         ├─ web intent ──────────────▶ web_search ──┐
-         └─ documents / hybrid ──────▶ retrieve ────┤
-                │                                    │
-                └─ hybrid / Search ON ─▶ web_search ┘
+         ├─ web intent ──────────────▶ web_search ──────────────┐
+         └─ documents / hybrid ──────▶ retrieve ──▶ rerank ─────┤
+                │                                                 │
+                └─ hybrid / Search ON ─▶ web_search ─────────────┘
                                          │
                                          ▼
                                        grade
@@ -146,26 +146,76 @@ Example:
 
 ### 3.2 `retrieve`
 
-**Job:** semantic search over **this workspace’s** documents.
+**Job:** broad semantic search over **this workspace’s** documents (default `k=12` via `RETRIEVE_CANDIDATES`).
 
 Outputs:
 
-- `context` — numbered excerpts with filenames  
-- `sources` — file names  
-- `chunk_previews` — for the UI  
-- `doc_score` — blend of lexical overlap + vector score  
+- `chunk_candidates` — raw hits (source, content, vector score)  
+- clears `context` / `doc_score` until rerank finishes  
 
-**Why score?** Weak doc hits should not force a confident answer.
+**Learned from:** Phase 11 RAG (chunk → embed → retrieve).
 
-**Learned from:** Phase 11 RAG (chunk → embed → retrieve) + evidence grading.
+### 3.2b `rerank`
+
+**Job:** carefully re-score candidates against the query and keep top-k (default `RERANK_TOP_K=5`).
+
+Backends (`RERANK_BACKEND`):
+
+- `lexical` (always available) — token overlap + Jaccard + phrase + vector blend  
+- `cross_encoder` / `auto` — `sentence-transformers` CrossEncoder when installed  
+
+Outputs:
+
+- `context`, `sources`, `chunk_previews`  
+- `doc_score` — blend of lexical overlap + rerank score  
+- `rerank_backend` — which scorer ran  
+
+**Why rerank at all?** Vector search is fast but approximate; it can put a “sort of related” chunk above the truly relevant one. Reranking re-orders a small candidate list carefully so the LLM sees the best evidence first.
+
+#### Why we use these libraries (not hand-rolled ML)
+
+| Library / piece | What it does here | Why use it instead of writing our own |
+|-----------------|-------------------|----------------------------------------|
+| **`sentence-transformers`** | Loads a **CrossEncoder** and scores `(query, chunk)` pairs | Battle-tested models, one-line `predict`, GPU/CPU handled for you — writing a transformer from scratch is months of ML work |
+| **`CrossEncoder` + `ms-marco-MiniLM-L-6-v2`** | Reads query **and** passage **together**, then outputs a relevance score | Bi-encoders (normal embeddings) compare two separate vectors; cross-encoders are slower but **much better at ranking** a short list — MS MARCO models are trained exactly for “is this passage useful for this query?” |
+| **`torch` / `transformers`** (pulled in by sentence-transformers) | Run the neural net weights locally | You get a real ranking model **without** calling a paid rerank API (Cohere/Jina) and **without** burning LLM tokens to score every chunk |
+| **`huggingface_hub` / HF cache** | Downloads & caches model weights once | First run fetches the model; later runs are local and offline-friendly |
+| **Our `lexical` backend** (no extra install) | Token overlap + Jaccard + vector blend in `rerank.py` | Zero download, always works — good for demos, CI, and when CrossEncoder isn’t installed yet |
+| **LangGraph `rerank` node** | Sits between `retrieve` and `grade` | Keeps the pipeline visible: retrieve many → rerank few → grade — same pattern interviewers expect |
+
+**Mental model:**
+
+```text
+retrieve  = fast librarian (grab ~12 maybe-relevant books)     → embeddings / pgvector
+rerank    = careful reader (score those 12, keep best 5)       → CrossEncoder or lexical
+generate  = writer (answer only from the top books)            → Ollama LLM
+```
+
+**Config:**
+
+| Env | Meaning |
+|-----|---------|
+| `RERANK_BACKEND=auto` | Prefer CrossEncoder if model loads; else lexical |
+| `RERANK_BACKEND=lexical` | Force no neural model |
+| `RERANK_BACKEND=cross_encoder` | Require CrossEncoder (falls back if missing) |
+| `RETRIEVE_CANDIDATES=12` | How many chunks retrieve returns |
+| `RERANK_TOP_K=5` | How many survive into `context` |
+| `HF_TOKEN=…` (optional) | Faster/more reliable Hugging Face model downloads |
+
+**Install for CrossEncoder:**
+
+```bash
+pip install "sentence-transformers>=3.0.0"
+# first use downloads: cross-encoder/ms-marco-MiniLM-L-6-v2
+```
 
 ### 3.3 Conditional: web search or not?
 
 ```text
-retrieve
-   │
-   ├─ use_web_search == true  → web_search → grade
-   └─ else                    → grade
+retrieve → rerank
+              │
+              ├─ use_web_search / hybrid  → web_search → grade
+              └─ else                     → grade
 ```
 
 - **Search toggle ON** (UI globe): always run live internet search.  
@@ -445,14 +495,14 @@ docker exec langgraph-pgvector psql -U langgraph -d langgraph \
 
 1. Upload PDF → OCR/text → 22 chunks in pgvector  
 2. Ask: *“How do I start the practice set?”* (Search **off**)  
-3. Flow: `rewrite → retrieve → grade → generate → verify`  
+3. Flow: `rewrite → retrieve → rerank → grade → generate → verify`  
 4. Answer cites `[AWS_….pdf]` from retrieved chunks  
 
 ### Example B — Current web fact (Search on)
 
 1. Toggle **Search**  
 2. Ask: *“What is DuckDuckGo known for?”*  
-3. Flow: `rewrite → retrieve → web_search → grade → generate → verify`  
+3. Flow: `rewrite → retrieve → rerank → web_search → grade → generate → verify`  
 4. UI shows searching animation, then **Web sources** cards `[W1]…`  
 
 ### Example C — Bad / empty evidence
@@ -526,13 +576,13 @@ Use this as a **cheat sheet**. Say the short answer first, then one concrete exa
 
 ### Elevator pitch (30 seconds)
 
-> “I built a grounded RAG chatbot with **LangGraph**: upload docs (including OCR for PDFs/images), store embeddings in **Postgres + pgvector**, then answer only from retrieved evidence — with optional live web search, evidence grading, citation checks, and a verify/fix loop. The UI shows the graph path so the workflow isn’t a black box.”
+> “I built a grounded RAG chatbot with **LangGraph**: upload docs (including OCR for PDFs/images), store embeddings in **Postgres + pgvector**, then **retrieve → rerank** (CrossEncoder via `sentence-transformers`) → answer only from evidence — with optional live web search, grading, citations, and a verify/fix loop. The UI shows the graph path so the workflow isn’t a black box.”
 
 ### Why LangGraph (not a single prompt)?
 
 | Interview ask | Strong answer |
 |---------------|---------------|
-| Why not one big prompt? | Multi-step control: rewrite → retrieve → (search) → grade → generate → verify. Each step is testable. |
+| Why not one big prompt? | Multi-step control: rewrite → retrieve → rerank → (search) → grade → generate → verify. Each step is testable. |
 | What is LangGraph? | A **stateful workflow** for LLM apps: shared state, nodes (functions), edges/conditionals. |
 | Conditional edges? | Example: intent `chat` → `chat_reply`; `web` → search; verify fail once → `fix`. |
 | State? | `ChatState` TypedDict; nodes return **partial updates**; graph merges them. |
@@ -545,6 +595,10 @@ Use this as a **cheat sheet**. Say the short answer first, then one concrete exa
 | RAG | Retrieve relevant chunks → generate **only** from them; reduces hallucination. |
 | Chunk + embed | Split text → `nomic-embed-text` → vectors; query embeds the same way. |
 | Similarity search | Cosine/distance over embeddings; return top-k chunks for the question. |
+| **Rerank** | Retrieve many (`k≈12`) → re-score → keep few (`top_k≈5`). Fixes approximate vector order. |
+| **Why `sentence-transformers`?** | Ready-made CrossEncoder API + MS MARCO models; we don’t train transformers ourselves. |
+| **Why CrossEncoder vs bi-encoder?** | Bi-encoder = fast separate vectors (retrieve). CrossEncoder = joint query+passage score (rerank). Use both. |
+| **Why not LLM-as-reranker?** | Works, but slower/costlier per chunk; a small CrossEncoder is purpose-built for ranking. |
 | **pgvector** | Postgres extension storing `vector(768)`; same DB for metadata + embeddings; survives restarts. |
 | Memory vs pgvector | Same store interface; memory for demos, pgvector for production persistence. |
 | Upsert | Update doc + replace old chunks (delete + insert) so re-upload doesn’t duplicate. |
@@ -577,20 +631,23 @@ Use this as a **cheat sheet**. Say the short answer first, then one concrete exa
 2. **“Why Postgres/pgvector instead of a dedicated vector DB?”**  
    One system for docs + chunks + metadata; SQL + vectors; easy local Docker; enough for this scale; can migrate later if needed.
 
-3. **“What happens when docs and web disagree?”**  
+3. **“Why add a CrossEncoder / `sentence-transformers` instead of only vector search?”**  
+   Embeddings retrieve fast but roughly. A CrossEncoder re-reads query+chunk together and reorders the shortlist — better precision before generate. Library gives production models without training our own net.
+
+4. **“What happens when docs and web disagree?”**  
    Scores (`doc_score` / `web_score`); generate prefers stronger evidence and must cite sources.
 
-4. **“How would you scale this?”**  
+5. **“How would you scale this?”**  
    Async workers for ingest, connection pooling, batch embeds, cache hot queries, move to managed Postgres, add eval harness for grounded accuracy.
 
-5. **“Difference between LangChain and LangGraph?”**  
+6. **“Difference between LangChain and LangGraph?”**  
    LangChain = building blocks (models, retrievers, tools). LangGraph = **orchestration** of multi-step, branching, looping workflows with durable state.
 
 ### One whiteboard you can draw in an interview
 
 ```text
 Ask → understand → chat? → LLM
-                 └─ docs/web/hybrid → rewrite → retrieve/web → grade → generate → verify → answer
+                 └─ docs/web/hybrid → rewrite → retrieve → rerank / web → grade → generate → verify → answer
 
 Upload → OCR? → chunk → embed → pgvector
 ```
@@ -611,6 +668,7 @@ projects/advanced_chatbot/
   store/             # memory.py | pgvector.py
   web_search.py      # reliable live search
   graph.py           # LangGraph ask pipeline
+  rerank.py          # lexical or sentence-transformers CrossEncoder re-score
 
 api/main.py                  # /api/run + concepts
 api/advanced_chat_routes.py  # upload / ask / status
@@ -624,7 +682,7 @@ ui/.../chat/                 # Search toggle + animations
 
 ## 12. How to study this in one evening
 
-1. Upload a small `.md` file; ask a question with Search **off**. Watch nodes: rewrite → retrieve → grade → generate → verify.  
+1. Upload a small `.md` file; ask a question with Search **off**. Watch nodes: rewrite → retrieve → rerank → grade → generate → verify.  
 2. Upload a screenshot/PDF; confirm `source_type` becomes `ocr`.  
 3. Turn Search **on**; ask a public-web question; watch the animation and `[W#]` citations.  
 4. Ask nonsense with Search off; confirm a **refusal**, not a story.  

@@ -81,6 +81,7 @@ You learn by **running code**, then **watching the same idea in the visual lab**
 | *(your project later)* | Add a real app beside these folders |
 | `projects/doc_upload_rag/` | Dynamic doc upload Q&A |
 | `projects/advanced_chatbot/` | Advanced chatbot · OCR · pgvector-ready |
+| `projects/rag_architect/` | Enterprise KB · hybrid / HyDE / CRAG / Graph RAG lab |
 | `deploy/` | Docker Compose for Postgres + pgvector + API |
 
 ---
@@ -100,6 +101,8 @@ You learn by **running code**, then **watching the same idea in the visual lab**
 | 9 · Research | `09_web_search` | Live internet search + citations | Answers grounded in fresh sources |
 | 10 · Apps | `10_person_finder` | Query → research → extract → reflect | Structured public person profiles |
 | 11 · Knowledge | `11_rag_llm_ecosystem` | LLMs, Lang stack, embeddings, RAG | Answers grounded in local documents |
+| 12 · Architect | `12_rag_architect` | Hybrid, HyDE, CRAG, Graph RAG, eval | Interview-ready enterprise RAG design |
+| 13 · MCP | `13_mcp_langgraph` | MCP tools inside LangGraph + LLM | Share Cursor tools with your agent |
 
 **Rule for beginners:** finish one phase before the next. Change one line, re-run, compare.
 
@@ -141,6 +144,13 @@ python Learning/11_rag_llm_ecosystem/02_lang_ecosystem.py
 python Learning/11_rag_llm_ecosystem/03_chunk_embed.py
 python Learning/11_rag_llm_ecosystem/04_retrieve.py
 python Learning/11_rag_llm_ecosystem/05_rag_graph.py
+
+python Learning/12_rag_architect/01_enterprise_layers.py
+# … through 08 — see Learning/12_rag_architect/LEARNING_PATH.md
+
+python Learning/13_mcp_langgraph/01_mcp_tools_agent.py
+# optional live Yahoo MCP (needs npx + network):
+# python Learning/13_mcp_langgraph/02_mcp_yahoo_optional.py
 ```
 
 ### Visual lab (see it)
@@ -156,13 +166,15 @@ cd ui && npm start
 
 Open `http://localhost:4200/chat` and switch concepts:
 
-State · Routing · Tools/ReAct · Memory · HITL · Multi-agent · Production · Subgraphs · Persistence · Web search · Person Finder · RAG · Complex RAG · **Doc upload · ask**
+State · Routing · Tools/ReAct · Memory · HITL · Multi-agent · Production · Subgraphs · Persistence · Web search · Person Finder · RAG · Complex RAG · **Doc upload · ask** · **MCP Agent**
 
 Or open dedicated apps:
 
 - Person Finder: `http://localhost:4200/chat/person-finder`
 - **Doc Upload Q&A** (dynamic upload + ask): `http://localhost:4200/chat/doc-rag`  
   See `projects/doc_upload_rag/README.md`
+- **MCP Agent**: `http://localhost:4200/chat/mcp`  
+  See `Learning/13_mcp_langgraph/FLOW_AND_LEARNING.md`
 
 Watch **nodes, edges, loops, and state** light up after each prompt.
 
@@ -228,6 +240,9 @@ When you are ready, create something like `projects/my-agent/` next to `Learning
   Full walkthrough: [`projects/advanced_chatbot/FLOW_AND_LEARNING.md`](projects/advanced_chatbot/FLOW_AND_LEARNING.md)  
   Start & deploy: [FLOW §6](projects/advanced_chatbot/FLOW_AND_LEARNING.md#6-how-to-start--deploy) · [`deploy/README.md`](deploy/README.md)  
   Interview points: [FLOW §10](projects/advanced_chatbot/FLOW_AND_LEARNING.md#10-interview-key-points-how-to-talk-about-this)
+- `projects/rag_architect/` — enterprise KB **architect lab** (hybrid / HyDE / CRAG / Graph RAG / eval)  
+  UI: `http://localhost:4200/chat/rag-architect`  
+  Learn: [`Learning/12_rag_architect/FLOW_AND_LEARNING.md`](Learning/12_rag_architect/FLOW_AND_LEARNING.md) · Project: [`projects/rag_architect/FLOW_AND_LEARNING.md`](projects/rag_architect/FLOW_AND_LEARNING.md)
 
 See `projects/advanced_chatbot/README.md` for the phased roadmap.
 

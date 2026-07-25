@@ -34,6 +34,7 @@
           type="button"
           class="concept-chip"
           [class.concept-chip--active]="concept.id === selectedConceptId"
+          [class.concept-chip--mcp]="concept.id === 'mcp_agent'"
           (click)="selectConcept(concept.id)">
           <strong>{{ concept.title }}</strong>
           <small>{{ concept.phase }}</small>
@@ -49,9 +50,7 @@
     </button>
   </div>
 
-  <div
-    class="workspace-grid"
-    [class.workspace-grid--chat-collapsed]="!chatExpanded">
+  <div class="workspace-grid">
     <aside class="workflow" aria-label="Dynamic LangGraph">
       <div class="workflow__heading">
         <p class="agent-kicker">{{ selectedConcept?.phase || 'concept' }}</p>
@@ -67,6 +66,25 @@
             <li>{{ point }}</li>
           }
         </ul>
+      }
+
+      @if (isMcpConcept) {
+        <div class="mcp-banner" aria-label="MCP tool source">
+          <div class="mcp-banner__head">
+            <i class="ri-plug-line" aria-hidden="true"></i>
+            <strong>MCP tools</strong>
+            <span>stdio · demo_mcp_server</span>
+          </div>
+          <div class="mcp-banner__tools">
+            @for (tool of graph.tools; track tool) {
+              <code>{{ tool }}</code>
+            }
+          </div>
+          <p class="mcp-banner__hint">
+            Same ReAct loop as Phase 3 — tools come from an MCP server via
+            <code>langchain-mcp-adapters</code>, not in-file <code>@tool</code>.
+          </p>
+        </div>
       }
 
       <div class="metric-grid" aria-label="Execution metrics">
@@ -205,47 +223,76 @@
 
     <section
       class="conversation"
-      [class.conversation--collapsed]="!chatExpanded"
       aria-label="LangGraph conversation">
       <header class="conversation__toolbar">
         <div class="conversation__toolbar-copy">
-          <strong>{{ chatExpanded ? 'Chat' : 'Chat collapsed' }}</strong>
+          <strong>Chat</strong>
           <small>
-            @if (!chatExpanded) {
-              Expand to see the conversation
-            } @else {
-              {{ messages.length }} message{{ messages.length === 1 ? '' : 's' }}
-            }
+            {{ messages.length }} message{{ messages.length === 1 ? '' : 's' }}
           </small>
-        </div>
-        <div class="conversation__toolbar-actions">
-          <button
-            type="button"
-            class="conversation__tool-btn"
-            (click)="toggleChatExpanded()"
-            [attr.aria-expanded]="chatExpanded"
-            [attr.aria-label]="chatExpanded ? 'Collapse chat' : 'Expand chat'"
-            [title]="chatExpanded ? 'Collapse chat' : 'Expand chat'">
-            <i [class]="chatExpanded ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'"></i>
-          </button>
         </div>
       </header>
 
-      @if (chatExpanded) {
       <div #conversation class="conversation__stream" aria-live="polite">
         @if (isRagConcept) {
-          <section class="rag-visualizer" aria-label="RAG execution visualizer">
+          <section
+            class="rag-visualizer"
+            [class.rag-visualizer--collapsed]="!ragVisualizerExpanded"
+            aria-label="RAG execution visualizer">
             <div class="rag-visualizer__heading">
               <div>
                 <p class="agent-kicker">RAG under the hood</p>
                 <h3>How LangGraph grounds an LLM</h3>
               </div>
-              <span class="rag-grounding">
-                <i class="ri-shield-check-line"></i>
-                Retrieval-augmented generation
-              </span>
+              <div class="rag-visualizer__actions">
+                <button
+                  type="button"
+                  class="conversation__tool-btn conversation__tool-btn--label"
+                  [class.conversation__tool-btn--active]="ragExplainOpen"
+                  (click)="toggleRagExplain()"
+                  [attr.aria-expanded]="ragExplainOpen"
+                  [attr.aria-label]="ragExplainOpen ? 'Hide RAG explanation' : 'Explain RAG flow'"
+                  [title]="ragExplainOpen ? 'Hide explain' : 'Explain'">
+                  <i class="ri-lightbulb-line"></i>
+                  <span>{{ ragExplainOpen ? 'Hide' : 'Explain' }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="conversation__tool-btn"
+                  (click)="toggleRagVisualizer()"
+                  [attr.aria-expanded]="ragVisualizerExpanded"
+                  [attr.aria-label]="ragVisualizerExpanded ? 'Collapse RAG visualizer' : 'Expand RAG visualizer'"
+                  [title]="ragVisualizerExpanded ? 'Collapse' : 'Expand'">
+                  <i [class]="ragVisualizerExpanded ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'"></i>
+                </button>
+                <span class="rag-grounding">
+                  <i class="ri-shield-check-line"></i>
+                  Retrieval-augmented generation
+                </span>
+              </div>
             </div>
 
+            @if (ragExplainOpen && ragVisualizerExpanded) {
+              <div class="rag-explain" role="note">
+                <p>
+                  <strong>Prepare knowledge:</strong>
+                  Upload docs (text, images, PDFs) → split into overlapping chunks →
+                  embed meaning as vectors → store in a searchable vector DB (pgvector).
+                </p>
+                <p>
+                  <strong>Answer a question:</strong>
+                  Embed the question → retrieve the top similar chunks → build
+                  question + evidence context → Ollama generates a grounded answer with citations.
+                </p>
+                <p>
+                  <strong>Why LangGraph:</strong>
+                  It owns the run state and the retrieve → generate path so the LLM
+                  only answers from retrieved evidence, not from memory alone.
+                </p>
+              </div>
+            }
+
+            @if (ragVisualizerExpanded) {
             <div class="rag-lane">
               <div class="rag-lane__label">
                 <strong>1. Prepare knowledge</strong>
@@ -418,6 +465,7 @@
                 </div>
               </div>
             }
+            }
           </section>
         }
 
@@ -451,7 +499,7 @@
                 <div class="tool-trace">
                   <p class="tool-trace__label">
                     <i class="ri-tools-line"></i>
-                    Tool trace
+                    {{ selectedConceptId === 'mcp_agent' ? 'MCP tool trace' : 'Tool trace' }}
                   </p>
                   @for (tool of message.toolEvents; track trackTool($index, tool)) {
                     <div class="tool-event">
@@ -541,10 +589,8 @@
           </div>
         }
       </div>
-      }
 
       <footer class="composer">
-        @if (chatExpanded) {
         <div class="suggestions" aria-label="Example prompts">
           @for (suggestion of suggestions; track suggestion) {
             <button
@@ -556,7 +602,6 @@
             </button>
           }
         </div>
-        }
 
         <form class="composer__form" [formGroup]="promptForm" (ngSubmit)="sendMessage()">
           @if (supportsWebSearchToggle) {

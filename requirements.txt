@@ -18,3 +18,8 @@ pillow>=10.0.0
 pytesseract>=0.3.10
 # Optional Postgres + pgvector backend for advanced chatbot:
 psycopg[binary]>=3.2.0
+# Stronger reranker (RERANK_BACKEND=auto|cross_encoder):
+sentence-transformers>=3.0.0
+# MCP tools → LangChain/LangGraph (Phase 13):
+langchain-mcp-adapters>=0.1.0
+mcp>=1.0.0

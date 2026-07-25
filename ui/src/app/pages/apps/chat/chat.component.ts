@@ -84,8 +84,9 @@ export class ChatComponent implements OnInit {
   private traceRunId = 0;
   private layoutMap: Record<string, { x: number; y: number }> = {};
 
-  /** Conversation panel: expanded shows stream + composer; collapsed keeps a slim composer. */
-  chatExpanded = true;
+  /** RAG visualizer: expanded shows pipelines; collapsed keeps heading + actions. */
+  ragVisualizerExpanded = true;
+  ragExplainOpen = false;
 
   constructor(
     private readonly http: HttpClient,
@@ -143,6 +144,10 @@ export class ChatComponent implements OnInit {
     return this.concepts.find(concept => concept.id === this.selectedConceptId);
   }
 
+  get isMcpConcept(): boolean {
+    return this.selectedConceptId === 'mcp_agent';
+  }
+
   get isRagConcept(): boolean {
     return (
       this.selectedConceptId === 'rag' ||
@@ -175,8 +180,15 @@ export class ChatComponent implements OnInit {
     this.webSearchEnabled = !this.webSearchEnabled;
   }
 
-  toggleChatExpanded(): void {
-    this.chatExpanded = !this.chatExpanded;
+  toggleRagVisualizer(): void {
+    this.ragVisualizerExpanded = !this.ragVisualizerExpanded;
+  }
+
+  toggleRagExplain(): void {
+    this.ragExplainOpen = !this.ragExplainOpen;
+    if (this.ragExplainOpen) {
+      this.ragVisualizerExpanded = true;
+    }
   }
 
 
@@ -271,7 +283,9 @@ export class ChatComponent implements OnInit {
       {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: this.isDocRagConcept
+        content: this.isMcpConcept
+          ? `${concept.title}\n\n${concept.summary}\n\nMCP tools load from demo_mcp_server.py (stdio) via langchain-mcp-adapters. Ask for a ticker quote or FX rate and watch agent ⇄ MCP tools.`
+          : this.isDocRagConcept
           ? `${concept.title}\n\n${concept.summary}\n\nUpload docs in the panel (or use sample prompts — README auto-seeds if empty).`
           : `${concept.title}\n\n${concept.summary}\n\nTry a sample prompt to watch nodes and edges light up.`,
         time: new Date()
@@ -280,6 +294,12 @@ export class ChatComponent implements OnInit {
     if (this.isDocRagConcept) {
       this.refreshDocWorkspace();
     }
+    queueMicrotask(() => {
+      const active = this.conceptBar?.nativeElement.querySelector(
+        '.concept-chip--active'
+      ) as HTMLElement | null;
+      active?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    });
   }
 
   refreshDocWorkspace(): void {
@@ -745,8 +765,8 @@ export class ChatComponent implements OnInit {
       }
     });
 
-    // Prefer known nice layouts for tools concept
-    if (this.selectedConceptId === 'tools') {
+    // Prefer known nice layouts for tools / MCP ReAct graphs
+    if (this.selectedConceptId === 'tools' || this.selectedConceptId === 'mcp_agent') {
       Object.assign(map, {
         __start__: { x: 160, y: 36 },
         agent: { x: 160, y: 118 },

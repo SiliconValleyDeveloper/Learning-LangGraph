@@ -1,0 +1,32 @@
+[
+  {
+    "id": "p1_ack",
+    "question": "What is the acknowledge time for a P1 incident?",
+    "must_include": ["5 minutes", "P1"],
+    "reference_answer": "P1 incidents must be acknowledged in 5 minutes."
+  },
+  {
+    "id": "leave_ticket",
+    "question": "What ticket code is used for leave requests?",
+    "must_include": ["HR-LEAVE-24"],
+    "reference_answer": "Leave requests use ticket code HR-LEAVE-24."
+  },
+  {
+    "id": "prod_write",
+    "question": "Which ticket is required for production write access?",
+    "must_include": ["ACC-PROD-WRITE"],
+    "reference_answer": "Production write access requires ticket ACC-PROD-WRITE."
+  },
+  {
+    "id": "break_glass",
+    "question": "How long does a prod-break-glass session last?",
+    "must_include": ["60 minutes", "prod-break-glass"],
+    "reference_answer": "Break-glass sessions expire after 60 minutes."
+  },
+  {
+    "id": "sec_quiz",
+    "question": "What is the security training quiz ID for new hires?",
+    "must_include": ["SEC-101"],
+    "reference_answer": "The security training quiz ID is SEC-101."
+  }
+]

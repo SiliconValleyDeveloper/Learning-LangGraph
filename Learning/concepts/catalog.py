@@ -572,11 +572,11 @@ CONCEPTS: dict[str, Concept] = {
         phase="projects/advanced_chatbot",
         summary=(
             "Understand the prompt first, then route: chat LLM, documents, web, or hybrid — "
-            "OCR + pgvector, grounded generate→verify."
+            "OCR + pgvector, retrieve→rerank, grounded generate→verify."
         ),
         teach=[
             "Intent router: Hi/how are you → LLM only (ignores uploaded docs)",
-            "Document questions → retrieve from pgvector; web questions → internet search",
+            "Document questions → retrieve many chunks → rerank top-k → generate",
             "Toggle Search to force/enrich with live web results",
             "Deploy with deploy/docker-compose.yml (API on :8001)",
         ],
@@ -595,6 +595,7 @@ CONCEPTS: dict[str, Concept] = {
             {"id": "chat_reply", "label": "chat (LLM)", "kind": "agent"},
             {"id": "rewrite", "label": "rewrite query", "kind": "agent"},
             {"id": "retrieve", "label": "retrieve docs", "kind": "tools"},
+            {"id": "rerank", "label": "rerank chunks", "kind": "tools"},
             {"id": "web_search", "label": "web search", "kind": "tools"},
             {"id": "grade", "label": "grade evidence", "kind": "conditional"},
             {"id": "generate", "label": "generate", "kind": "agent"},
@@ -609,16 +610,24 @@ CONCEPTS: dict[str, Concept] = {
             {"id": "e4", "source": "chat_reply", "target": "__end__", "kind": "normal", "label": ""},
             {"id": "e5", "source": "rewrite", "target": "retrieve", "kind": "conditional", "label": "docs"},
             {"id": "e6", "source": "rewrite", "target": "web_search", "kind": "conditional", "label": "web"},
-            {"id": "e7", "source": "retrieve", "target": "grade", "kind": "conditional", "label": "docs only"},
-            {"id": "e8", "source": "retrieve", "target": "web_search", "kind": "conditional", "label": "hybrid"},
-            {"id": "e9", "source": "web_search", "target": "grade", "kind": "normal", "label": "hits"},
-            {"id": "e10", "source": "grade", "target": "generate", "kind": "normal", "label": "pass/weak"},
-            {"id": "e11", "source": "generate", "target": "verify", "kind": "normal", "label": "draft"},
-            {"id": "e12", "source": "verify", "target": "__end__", "kind": "conditional", "label": "ok"},
-            {"id": "e13", "source": "verify", "target": "fix", "kind": "conditional", "label": "retry"},
-            {"id": "e14", "source": "fix", "target": "verify", "kind": "loop", "label": "rewrite"},
+            {"id": "e7", "source": "retrieve", "target": "rerank", "kind": "normal", "label": "candidates"},
+            {"id": "e8", "source": "rerank", "target": "grade", "kind": "conditional", "label": "docs only"},
+            {"id": "e9", "source": "rerank", "target": "web_search", "kind": "conditional", "label": "hybrid"},
+            {"id": "e10", "source": "web_search", "target": "grade", "kind": "normal", "label": "hits"},
+            {"id": "e11", "source": "grade", "target": "generate", "kind": "normal", "label": "pass/weak"},
+            {"id": "e12", "source": "generate", "target": "verify", "kind": "normal", "label": "draft"},
+            {"id": "e13", "source": "verify", "target": "__end__", "kind": "conditional", "label": "ok"},
+            {"id": "e14", "source": "verify", "target": "fix", "kind": "conditional", "label": "retry"},
+            {"id": "e15", "source": "fix", "target": "verify", "kind": "loop", "label": "rewrite"},
         ],
-        tools=["intent_router", "semantic_retrieval", "internet_search", "evidence_grader", "doc_upsert"],
+        tools=[
+            "intent_router",
+            "semantic_retrieval",
+            "chunk_reranker",
+            "internet_search",
+            "evidence_grader",
+            "doc_upsert",
+        ],
         state_keys=[
             "workspace_id",
             "question",
@@ -632,11 +641,98 @@ CONCEPTS: dict[str, Concept] = {
             "doc_score",
             "web_score",
             "evidence_grade",
+            "rerank_backend",
             "sources",
             "web_results",
             "answer",
             "verified",
         ],
+    ),
+    "rag_architect": Concept(
+        id="rag_architect",
+        title="RAG Architect · strategies",
+        phase="projects/rag_architect",
+        summary=(
+            "Enterprise Contoso Ops KB lab: compare baseline, hybrid, HyDE, CRAG, "
+            "Graph RAG, and agentic strategies with citations and eval. "
+            "Open /chat/rag-architect for the dedicated strategy UI."
+        ),
+        teach=[
+            "Interview frame: knowledge → retrieval → validation layers",
+            "Hybrid (dense + BM25 + RRF) recovers ticket IDs better than dense alone",
+            "CRAG grades evidence and retries; Graph expands entity hops",
+            "Use the dedicated page to switch strategies and run offline eval",
+        ],
+        needs_ollama=True,
+        supports_chat=True,
+        supports_hitl=False,
+        sample_prompts=[
+            "What ticket code is used for leave requests?",
+            "What is the P1 acknowledge time?",
+            "For a P1, what PagerDuty service do we page?",
+            "How long does a prod-break-glass session last?",
+        ],
+        topology_nodes=[
+            {"id": "__start__", "label": "START", "kind": "start"},
+            {"id": "choose_strategy", "label": "choose strategy", "kind": "conditional"},
+            {"id": "retrieve", "label": "retrieve", "kind": "tools"},
+            {"id": "grade", "label": "grade", "kind": "conditional"},
+            {"id": "rewrite", "label": "rewrite", "kind": "agent"},
+            {"id": "generate", "label": "generate", "kind": "agent"},
+            {"id": "verify", "label": "verify", "kind": "conditional"},
+            {"id": "__end__", "label": "END", "kind": "end"},
+        ],
+        topology_edges=[
+            {"id": "e1", "source": "__start__", "target": "choose_strategy", "kind": "normal", "label": ""},
+            {"id": "e2", "source": "choose_strategy", "target": "retrieve", "kind": "normal", "label": "strategy"},
+            {"id": "e3", "source": "retrieve", "target": "grade", "kind": "normal", "label": "hits"},
+            {"id": "e4", "source": "grade", "target": "generate", "kind": "conditional", "label": "pass"},
+            {"id": "e5", "source": "grade", "target": "rewrite", "kind": "conditional", "label": "CRAG fail"},
+            {"id": "e6", "source": "rewrite", "target": "retrieve", "kind": "loop", "label": "retry"},
+            {"id": "e7", "source": "generate", "target": "verify", "kind": "normal", "label": "draft"},
+            {"id": "e8", "source": "verify", "target": "__end__", "kind": "normal", "label": "answer"},
+        ],
+        tools=["hybrid_retrieval", "hyde", "crag_grader", "graph_hops", "offline_eval"],
+        state_keys=["question", "strategy", "hits", "grade", "answer", "notes", "verified"],
+    ),
+    "mcp_agent": Concept(
+        id="mcp_agent",
+        title="MCP · LangGraph · LLM",
+        phase="13_mcp_langgraph",
+        summary=(
+            "Load tools from an MCP server (stdio demo market), convert them with "
+            "langchain-mcp-adapters, then run the Phase-3 ReAct loop with Ollama."
+        ),
+        teach=[
+            "MCP server exposes tools; adapters turn them into LangChain tools",
+            "Same agent ⇄ ToolNode loop as Phase 3 — only the tool source changes",
+            "stdio MCP matches how Cursor launches servers (command + args)",
+            "Optional: point the client at Yahoo Finance MCP via npx",
+        ],
+        needs_ollama=True,
+        supports_chat=True,
+        supports_hitl=False,
+        sample_prompts=[
+            "What is the demo quote for TCS.NS?",
+            "List supported tickers and give AAPL's price",
+            "What is the demo USDINR rate?",
+        ],
+        topology_nodes=[
+            {"id": "__start__", "label": "START", "kind": "start"},
+            {"id": "agent", "label": "agent (LLM)", "kind": "agent"},
+            {"id": "tools_condition", "label": "tools?", "kind": "conditional"},
+            {"id": "tools", "label": "MCP tools", "kind": "tools"},
+            {"id": "__end__", "label": "END", "kind": "end"},
+        ],
+        topology_edges=[
+            {"id": "e1", "source": "__start__", "target": "agent", "kind": "normal", "label": ""},
+            {"id": "e2", "source": "agent", "target": "tools_condition", "kind": "normal", "label": ""},
+            {"id": "e3", "source": "tools_condition", "target": "tools", "kind": "conditional", "label": "yes"},
+            {"id": "e4", "source": "tools_condition", "target": "__end__", "kind": "conditional", "label": "no"},
+            {"id": "e5", "source": "tools", "target": "agent", "kind": "loop", "label": "loop"},
+        ],
+        tools=["list_tickers", "get_quote", "fx_rate"],
+        state_keys=["messages"],
     ),
 }
 
@@ -2124,7 +2220,9 @@ def run_advanced_chatbot(
         "web_context": "",
         "sources": [],
         "web_results": [],
+        "chunk_candidates": [],
         "chunk_previews": [],
+        "rerank_backend": "",
         "doc_score": 0.0,
         "web_score": 0.0,
         "evidence_grade": "fail",
@@ -2168,16 +2266,10 @@ def run_advanced_chatbot(
             elif node == "chat_reply":
                 summary = "Friendly LLM reply (no docs / no web)"
             elif node == "retrieve":
-                previews = list(result.get("chunk_previews") or [])
-                summary = (
-                    f"Retrieved {len(previews)} chunks · doc_score={result.get('doc_score')}"
-                )
+                candidates = list(result.get("chunk_candidates") or [])
+                summary = f"Retrieved {len(candidates)} candidate chunks"
                 tool_names = ["semantic_retrieval"]
-                decision = (
-                    "web_search"
-                    if intent == "hybrid" or web_search
-                    else "grade"
-                )
+                decision = "rerank"
                 tool_events.append(
                     {
                         "name": "semantic_retrieval",
@@ -2186,8 +2278,34 @@ def run_advanced_chatbot(
                             "query": result.get("rewritten_query") or message,
                         },
                         "result": (
-                            f"{len(previews)} chunks · {', '.join(sources) or 'none'}"
+                            f"{len(candidates)} candidates"
                             + (" · auto-seeded README" if seeded else "")
+                        ),
+                    }
+                )
+            elif node == "rerank":
+                previews = list(result.get("chunk_previews") or [])
+                backend = str(result.get("rerank_backend") or "lexical")
+                summary = (
+                    f"Reranked → top {len(previews)} · backend={backend} · "
+                    f"doc_score={result.get('doc_score')}"
+                )
+                tool_names = ["chunk_reranker"]
+                decision = (
+                    "web_search"
+                    if intent == "hybrid" or web_search
+                    else "grade"
+                )
+                tool_events.append(
+                    {
+                        "name": "chunk_reranker",
+                        "args": {
+                            "backend": backend,
+                            "kept": len(previews),
+                        },
+                        "result": (
+                            f"top {len(previews)} · {', '.join(sources) or 'none'} · "
+                            f"doc_score={result.get('doc_score')}"
                         ),
                     }
                 )
@@ -2234,6 +2352,8 @@ def run_advanced_chatbot(
                     else "fix"
                 )
             elif node == "retrieve":
+                edge_to = "rerank"
+            elif node == "rerank":
                 edge_to = "web_search" if (intent == "hybrid" or web_search) else "grade"
             elif node == "web_search":
                 edge_to = "grade"
@@ -2309,6 +2429,7 @@ def run_advanced_chatbot(
             "doc_score": result.get("doc_score"),
             "web_score": result.get("web_score"),
             "evidence_grade": result.get("evidence_grade"),
+            "rerank_backend": result.get("rerank_backend") or "",
             "retrieved_chunk_count": len(retrieved_chunks),
             "retrieved_chunks": retrieved_chunks,
             "knowledge_files": knowledge_files,
@@ -2329,6 +2450,215 @@ def run_advanced_chatbot(
 
 
 
+def run_rag_architect(message: str, thread_id: str) -> dict[str, Any]:
+    """Lab chip runner — default hybrid strategy. Prefer /chat/rag-architect UI."""
+    sys.path.insert(0, str(ROOT))
+    from projects.rag_architect.config import STRATEGIES
+    from projects.rag_architect.service import ask, ingest_seed
+
+    ingest_seed(rebuild=False)
+    text = (message or "").strip()
+    strategy = "hybrid"
+    # Optional prefix: "crag: What is the P1 acknowledge time?"
+    for name in STRATEGIES:
+        prefix = f"{name}:"
+        if text.lower().startswith(prefix):
+            strategy = name
+            text = text[len(prefix) :].strip()
+            break
+
+    result = ask(text or message, strategy=strategy)
+    hits = [
+        {
+            "source": h.source,
+            "score": round(h.score, 4),
+            "preview": h.content[:180],
+        }
+        for h in result.hits
+    ]
+    tool_events = [
+        {
+            "name": "hybrid_retrieval",
+            "args": {"strategy": result.strategy, "question": result.question},
+            "result": (
+                f"{len(result.hits)} hits from "
+                f"{', '.join(result.sources) or 'no sources'} · grade={result.grade}"
+            ),
+        }
+    ]
+    trace = [
+        {
+            "sequence": 1,
+            "node": "choose_strategy",
+            "summary": f"strategy={result.strategy}",
+            "edge_from": "__start__",
+            "edge_to": "retrieve",
+            "decision": result.strategy,
+            "tool_names": [],
+            "state": {
+                "message_count": 2,
+                "last_message_type": "choose_strategy",
+                "memory_enabled": False,
+            },
+        },
+        {
+            "sequence": 2,
+            "node": "retrieve",
+            "summary": f"Retrieved {len(result.hits)} chunks",
+            "edge_from": "choose_strategy",
+            "edge_to": "grade",
+            "decision": None,
+            "tool_names": ["hybrid_retrieval"],
+            "state": {
+                "message_count": 2,
+                "last_message_type": "retrieve",
+                "memory_enabled": False,
+            },
+        },
+        {
+            "sequence": 3,
+            "node": "generate",
+            "summary": "Grounded answer with citations"
+            if result.verified
+            else "Answer generated (check verification)",
+            "edge_from": "grade",
+            "edge_to": "__end__",
+            "decision": result.grade or None,
+            "tool_names": [],
+            "state": {
+                "message_count": 2,
+                "last_message_type": "generate",
+                "memory_enabled": False,
+            },
+        },
+    ]
+    return {
+        "reply": result.answer,
+        "thread_id": thread_id,
+        "messages": [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": result.answer},
+        ],
+        "tool_events": tool_events,
+        "interrupted": False,
+        "pending": None,
+        "trace": trace,
+        "path": [step["node"] for step in trace],
+        "state_extra": {
+            "question": result.question,
+            "strategy": result.strategy,
+            "sources": result.sources,
+            "grade": result.grade,
+            "verified": result.verified,
+            "notes": result.notes,
+            "chunk_previews": hits,
+            "rag_mode": "rag_architect",
+            "grounded": True,
+            "open_dedicated_ui": "/chat/rag-architect",
+        },
+    }
+
+
+def run_mcp_agent(message: str, thread_id: str) -> dict[str, Any]:
+    """Phase 13: MCP demo tools → LangGraph ReAct → Ollama."""
+    import asyncio
+
+    from langchain_core.messages import HumanMessage
+
+    sys.path.insert(0, str(ROOT))
+    lesson = _load("learn_mcp_agent", "13_mcp_langgraph/01_mcp_tools_agent.py")
+
+    async def _run() -> tuple[Any, list[str]]:
+        tools = await lesson.load_mcp_tools()
+        graph = lesson.build_graph(tools)
+        tool_names = [t.name for t in tools]
+        result = await graph.ainvoke({"messages": [HumanMessage(content=message)]})
+        return result, tool_names
+
+    result, tool_names = asyncio.run(_run())
+    messages = list(result.get("messages") or [])
+    final = messages[-1] if messages else None
+    reply = ""
+    if final is not None:
+        reply = (
+            final.content
+            if isinstance(getattr(final, "content", None), str)
+            else str(getattr(final, "content", final))
+        )
+
+    path_nodes: list[str] = ["agent"]
+    tool_events: list[dict[str, Any]] = []
+    for msg in messages:
+        name = msg.__class__.__name__
+        if name == "AIMessage" and getattr(msg, "tool_calls", None):
+            for call in msg.tool_calls:
+                tool_events.append(
+                    {
+                        "name": call.get("name") or "mcp_tool",
+                        "args": call.get("args") or {},
+                        "result": "(see ToolMessage)",
+                    }
+                )
+            path_nodes.append("tools")
+            path_nodes.append("agent")
+        elif name == "ToolMessage":
+            if tool_events:
+                tool_events[-1]["result"] = str(getattr(msg, "content", ""))[:240]
+
+    # Deduplicate consecutive agent/tools for a cleaner path label
+    compact: list[str] = []
+    for node in path_nodes:
+        if not compact or compact[-1] != node:
+            compact.append(node)
+
+    trace: list[dict[str, Any]] = []
+    previous = "__start__"
+    for index, node in enumerate(compact, start=1):
+        edge_to = compact[index] if index < len(compact) else "__end__"
+        summary = (
+            f"MCP tools available: {', '.join(tool_names)}"
+            if node == "agent" and index == 1
+            else ("Executed MCP tool call(s)" if node == "tools" else "LLM turn")
+        )
+        trace.append(
+            {
+                "sequence": index,
+                "node": node,
+                "summary": summary,
+                "edge_from": previous,
+                "edge_to": edge_to,
+                "decision": "tools" if node == "agent" and edge_to == "tools" else None,
+                "tool_names": tool_names if node == "tools" else [],
+                "state": {
+                    "message_count": len(messages),
+                    "last_message_type": node,
+                    "memory_enabled": False,
+                },
+            }
+        )
+        previous = node
+
+    return {
+        "reply": reply or "No answer returned.",
+        "thread_id": thread_id,
+        "messages": [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": reply or "No answer returned."},
+        ],
+        "tool_events": tool_events,
+        "interrupted": False,
+        "pending": None,
+        "trace": trace,
+        "path": [step["node"] for step in trace],
+        "state_extra": {
+            "mcp_tools": tool_names,
+            "mcp_server": "demo_mcp_server.py",
+            "rag_mode": "mcp_agent",
+            "grounded": bool(tool_events),
+        },
+    }
+
+
 RUNNERS: dict[str, Callable[..., dict[str, Any]]] = {
     "hello": run_hello,
     "router": run_router,
@@ -2345,6 +2675,8 @@ RUNNERS: dict[str, Callable[..., dict[str, Any]]] = {
     "rag_complex": run_rag_complex,
     "doc_rag": run_doc_rag,
     "advanced_chatbot": run_advanced_chatbot,
+    "rag_architect": run_rag_architect,
+    "mcp_agent": run_mcp_agent,
 }
 
 

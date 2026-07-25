@@ -8,7 +8,7 @@ Production-oriented project next to `Learning/` and `projects/doc_upload_rag/`.
 
 **Interview cheat sheet:** [FLOW_AND_LEARNING.md §10](./FLOW_AND_LEARNING.md#10-interview-key-points-how-to-talk-about-this)
 
-**Goal:** upload / update documents → chunk + embed → **pgvector** → advanced grounded chat with optional live web search. Smarter pipeline: multi-query search, evidence grading, strict citations, one fix retry.
+**Goal:** upload / update documents → chunk + embed → **pgvector** → advanced grounded chat with optional live web search. Smarter pipeline: retrieve→**rerank** (`sentence-transformers` CrossEncoder or lexical fallback), multi-query search, evidence grading, strict citations, one fix retry.
 
 ![Advanced chat intent router — “could you search on internet?” → LLM capability reply](../../docs/langgraph-lab-advanced-chatbot-intent.png)
 
@@ -16,7 +16,7 @@ Production-oriented project next to `Learning/` and `projects/doc_upload_rag/`.
 
 | Phase | Status | What |
 |-------|--------|------|
-| **A** | Ready now | Memory vector store, text upload/update/delete, rewrite→retrieve→generate→verify graph |
+| **A** | Ready now | Memory vector store, text upload/update/delete, rewrite→retrieve→rerank→generate→verify graph |
 | **B** | Enabled | `VECTOR_BACKEND=pgvector` + Docker on port **5433** |
 | **C** | Enabled | `OCR_PROVIDER=auto` — PDF text → **Tesseract** → Ollama vision → DeepSeek HTTP |
 | **D** | Enabled | `docker compose -f deploy/docker-compose.yml up -d --build` → API on **:8001** |
@@ -32,7 +32,8 @@ Upload (text | image/PDF)
                                               │
                                          memory | pgvector
                                               │
-                         rewrite → retrieve → generate → verify
+                         rewrite → retrieve → rerank → generate → verify
+                                         └─ optional web_search ─┘
 ```
 
 ## Run (Phase A — today)
@@ -130,7 +131,8 @@ projects/advanced_chatbot/
   store/         # memory.py | pgvector.py (same interface)
   ocr.py         # auto / tesseract / ollama_vision / deepseek_http
   service.py     # ingest_bytes (text | OCR)
-  graph.py       # rewrite → retrieve → generate → verify
+  graph.py       # rewrite → retrieve → rerank → generate → verify
+  rerank.py      # lexical (default) or optional CrossEncoder re-scoring
 api/advanced_chat_routes.py
 deploy/docker-compose.yml
 ```

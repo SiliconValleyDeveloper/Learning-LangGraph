@@ -9,6 +9,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 from Learning.llm import get_llm
+from projects.advanced_chatbot.rerank import (
+    build_context_from_ranked,
+    rerank_chunks,
+    retrieve_candidate_count,
+)
 from projects.advanced_chatbot.store import get_store
 from projects.advanced_chatbot.web_search import (
     build_search_queries,
@@ -173,7 +178,9 @@ class ChatState(TypedDict):
     web_context: str
     sources: list[str]
     web_results: list[dict[str, str]]
+    chunk_candidates: list[dict[str, Any]]
     chunk_previews: list[dict[str, Any]]
+    rerank_backend: str
     doc_score: float
     web_score: float
     evidence_grade: str
@@ -314,7 +321,9 @@ def _chat_reply(state: ChatState) -> dict[str, Any]:
         "web_context": "",
         "sources": [],
         "web_results": [],
+        "chunk_candidates": [],
         "chunk_previews": [],
+        "rerank_backend": "",
         "doc_score": 0.0,
         "web_score": 0.0,
     }
@@ -349,43 +358,54 @@ def _route_after_rewrite(
 
 
 def _retrieve(state: ChatState) -> dict[str, Any]:
+    """Broad similarity search — keep many candidates for the rerank node."""
     store = get_store()
     query = state.get("rewritten_query") or state["question"]
-    hits = store.retrieve(state["workspace_id"], query, k=6)
-    blocks: list[str] = []
-    sources: list[str] = []
-    previews: list[dict[str, Any]] = []
-    best_overlap = 0.0
-    for index, hit in enumerate(hits, start=1):
-        sources.append(hit.filename)
-        blocks.append(f"[{index}] Source: {hit.filename}\n{hit.content}")
-        previews.append(
-            {
-                "source": hit.filename,
-                "score": round(hit.score, 4),
-                "preview": hit.content[:240],
-            }
-        )
-        best_overlap = max(
-            best_overlap,
-            evidence_overlap(state["question"], hit.content),
-        )
-    context = "\n\n".join(blocks)
-    if previews:
-        avg_vec = sum(float(p["score"]) for p in previews) / len(previews)
-        vec_component = min(max(avg_vec, 0.0), 1.0) if avg_vec <= 1.5 else max(0.0, 1.0 - avg_vec)
-        doc_score = round(0.55 * best_overlap + 0.45 * vec_component, 4)
-    else:
-        doc_score = 0.0
+    hits = store.retrieve(
+        state["workspace_id"],
+        query,
+        k=retrieve_candidate_count(),
+    )
+    candidates: list[dict[str, Any]] = [
+        {
+            "source": hit.filename,
+            "content": hit.content,
+            "score": float(hit.score),
+            "chunk_id": hit.chunk_id,
+        }
+        for hit in hits
+    ]
+    # Context / doc_score are finalized in `_rerank` after re-scoring.
     return {
-        "context": context,
-        "sources": sorted(set(sources)),
-        "chunk_previews": previews,
-        "doc_score": doc_score,
+        "chunk_candidates": candidates,
+        "context": "",
+        "sources": [],
+        "chunk_previews": [],
+        "doc_score": 0.0,
+        "rerank_backend": "",
     }
 
 
-def _route_after_retrieve(state: ChatState) -> Literal["web_search", "grade"]:
+def _rerank(state: ChatState) -> dict[str, Any]:
+    """Re-score retrieve candidates and keep the best top-k for generation."""
+    query = state.get("rewritten_query") or state["question"]
+    question = state["question"]
+    candidates = list(state.get("chunk_candidates") or [])
+    ranked, backend = rerank_chunks(query, candidates)
+    context, sources, previews, doc_score = build_context_from_ranked(question, ranked)
+    # Prefer question tokens for overlap; rewritten query already drove retrieval order.
+    return {
+        "context": context,
+        "sources": sources,
+        "chunk_previews": previews,
+        "doc_score": doc_score,
+        "rerank_backend": backend,
+        # Drop bulky candidates from later state snapshots.
+        "chunk_candidates": [],
+    }
+
+
+def _route_after_rerank(state: ChatState) -> Literal["web_search", "grade"]:
     intent = state.get("intent") or "documents"
     # hybrid always searches; documents + Search toggle also searches.
     if intent == "hybrid" or state.get("use_web_search"):
@@ -615,6 +635,7 @@ def build_graph():
     graph.add_node("chat_reply", _chat_reply)
     graph.add_node("rewrite", _rewrite)
     graph.add_node("retrieve", _retrieve)
+    graph.add_node("rerank", _rerank)
     graph.add_node("web_search", _web_search)
     graph.add_node("grade", _grade)
     graph.add_node("generate", _generate)
@@ -633,9 +654,10 @@ def build_graph():
         _route_after_rewrite,
         {"retrieve": "retrieve", "web_search": "web_search"},
     )
+    graph.add_edge("retrieve", "rerank")
     graph.add_conditional_edges(
-        "retrieve",
-        _route_after_retrieve,
+        "rerank",
+        _route_after_rerank,
         {"web_search": "web_search", "grade": "grade"},
     )
     graph.add_edge("web_search", "grade")
@@ -671,7 +693,9 @@ def _empty_state(workspace_id: str, question: str, web_search: bool) -> dict[str
         "web_context": "",
         "sources": [],
         "web_results": [],
+        "chunk_candidates": [],
         "chunk_previews": [],
+        "rerank_backend": "",
         "doc_score": 0.0,
         "web_score": 0.0,
         "evidence_grade": "fail",
@@ -705,6 +729,7 @@ def ask(
         "doc_score": result.get("doc_score"),
         "web_score": result.get("web_score"),
         "evidence_grade": result.get("evidence_grade"),
+        "rerank_backend": result.get("rerank_backend") or "",
         "verified": bool(result.get("verified")),
         "web_search_used": bool(result.get("web_results")),
         "workspace": {

@@ -23,6 +23,7 @@ sys.path.insert(0, str(LEARNING))
 from Learning.concepts import catalog  # noqa: E402
 from api.advanced_chat_routes import router as advanced_chat_router  # noqa: E402
 from api.doc_rag_routes import router as doc_rag_router  # noqa: E402
+from api.rag_architect_routes import router as rag_architect_router  # noqa: E402
 
 
 class RunRequest(BaseModel):
@@ -274,6 +275,7 @@ app.add_middleware(
 )
 app.include_router(doc_rag_router)
 app.include_router(advanced_chat_router)
+app.include_router(rag_architect_router)
 
 
 @app.get("/api/health")

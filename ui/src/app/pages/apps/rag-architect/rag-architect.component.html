@@ -1,0 +1,372 @@
+<div class="doc-shell">
+  <header class="doc-hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Project · Interview lab</p>
+      <h1>RAG Architect</h1>
+      <p class="lede">
+        Enterprise RAG is three layers —
+        <strong>Knowledge</strong>,
+        <strong>Retrieval</strong>,
+        <strong>Validation</strong>.
+        Explore the graph, then ask Contoso Ops with a strategy.
+      </p>
+    </div>
+    <div class="status-pill" [class.status-pill--online]="isOnline">
+      <span>{{ isOnline ? 'API online' : 'API offline' }}</span>
+      <small>{{ chatModel }} · {{ embedModel }}</small>
+      <small>{{ documentCount }} docs · {{ chunkCount }} chunks</small>
+    </div>
+  </header>
+
+  <nav class="view-tabs" aria-label="RAG Architect views">
+    <button
+      type="button"
+      [class.active]="activeTab === 'architecture'"
+      (click)="setTab('architecture')"
+    >
+      Architecture · layers + graph
+    </button>
+    <button type="button" [class.active]="activeTab === 'ask'" (click)="setTab('ask')">
+      Ask lab · strategies
+    </button>
+  </nav>
+
+  <div class="main-scroll">
+    @if (activeTab === 'architecture') {
+      <section class="arch-shell" aria-label="Architecture layers">
+        <div class="panel graph-panel">
+          <div class="panel-head">
+            <h2>Pipeline graph</h2>
+            <p>
+              Highlighted path follows strategy
+              <span class="mono">{{ selectedStrategy }}</span>
+              — {{ strategyHelp[selectedStrategy] }}
+            </p>
+          </div>
+
+          <div class="strategy-bar" role="listbox" aria-label="Retrieval strategy">
+            @for (strategy of strategies; track strategy) {
+              <button
+                type="button"
+                class="strategy-chip"
+                [class.strategy-chip--active]="selectedStrategy === strategy"
+                (click)="selectStrategy(strategy)"
+              >
+                {{ strategy }}
+              </button>
+            }
+          </div>
+
+          <div class="layer-legend">
+            <button type="button" class="legend legend--knowledge" (click)="selectLayer('knowledge')">
+              Knowledge
+            </button>
+            <button type="button" class="legend legend--retrieval" (click)="selectLayer('retrieval')">
+              Retrieval
+            </button>
+            <button type="button" class="legend legend--validation" (click)="selectLayer('validation')">
+              Validation
+            </button>
+          </div>
+
+          <div class="graph-canvas" aria-label="Enterprise RAG architecture graph">
+            <svg [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight" role="img">
+              <defs>
+                <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                  <path d="M0,0 L7,3 L0,6 Z" fill="rgba(26,35,50,0.55)"></path>
+                </marker>
+                <marker id="arrow-active" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                  <path d="M0,0 L7,3 L0,6 Z" fill="#9a4518"></path>
+                </marker>
+              </defs>
+
+              @for (edge of baseEdges; track edge.from + '-' + edge.to + '-' + (edge.label || '')) {
+                <path
+                  [attr.d]="edgePath(edge)"
+                  [attr.class]="edgeClass(edge)"
+                  fill="none"
+                  [attr.marker-end]="
+                    edgeClass(edge).includes('flow-edge--active') ? 'url(#arrow-active)' : 'url(#arrow)'
+                  "
+                ></path>
+                @if (edgeLabelPos(edge); as pos) {
+                  <text [attr.x]="pos.x" [attr.y]="pos.y" class="edge-label">{{ edge.label }}</text>
+                }
+              }
+
+              @for (node of baseNodes; track node.id) {
+                <g
+                  [attr.transform]="'translate(' + node.x + ',' + node.y + ')'"
+                  (click)="onNodeClick(node)"
+                >
+                  <rect
+                    x="-54"
+                    y="-18"
+                    width="108"
+                    height="36"
+                    rx="10"
+                    [attr.class]="nodeClass(node)"
+                  ></rect>
+                  <text text-anchor="middle" dominant-baseline="middle" class="node-label">
+                    {{ node.label }}
+                  </text>
+                </g>
+              }
+            </svg>
+          </div>
+
+          <p class="graph-hint">
+            Click a legend chip or graph node to open that layer’s explanation and Contoso example.
+          </p>
+        </div>
+
+        <div class="layer-grid">
+          @for (layer of layers; track layer.id) {
+            <button
+              type="button"
+              class="layer-card"
+              [ngClass]="['layer-card--' + layer.id, selectedLayer === layer.id ? 'layer-card--active' : '']"
+              (click)="selectLayer(layer.id)"
+            >
+              <strong>{{ layer.title }}</strong>
+              <span>{{ layer.subtitle }}</span>
+            </button>
+          }
+        </div>
+
+        <article class="panel layer-detail" [attr.data-layer]="selectedLayer">
+          <div class="panel-head">
+            <h2>{{ selectedLayerData.title }}</h2>
+            <p>{{ selectedLayerData.job }}</p>
+          </div>
+
+          <div class="detail-columns">
+            <div class="inside-box">
+              <h3>What’s inside</h3>
+              <ul>
+                @for (item of selectedLayerData.contains; track item) {
+                  <li>{{ item }}</li>
+                }
+              </ul>
+            </div>
+            <div class="example-box">
+              <h3>Contoso example</h3>
+              <p class="example-label">{{ selectedLayerData.example.label }}</p>
+              <p>{{ selectedLayerData.example.detail }}</p>
+              <blockquote>{{ selectedLayerData.interview }}</blockquote>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel walkthrough">
+          <div class="walk-head">
+            <div>
+              <h2>Worked example across all layers</h2>
+              <p class="mono">Q: {{ workedExample.question }}</p>
+            </div>
+            <button type="button" class="primary walk-cta" (click)="tryWorkedExample()">
+              Run this in Ask lab
+            </button>
+          </div>
+          <ol class="walk-steps">
+            @for (step of workedExample.steps; track step.title) {
+              <li [class]="'walk-step walk-step--' + step.layer">
+                <strong>{{ step.title }}</strong>
+                <p>{{ step.text }}</p>
+              </li>
+            }
+          </ol>
+        </article>
+      </section>
+    } @else {
+      <div class="doc-grid">
+        <section class="panel upload-panel" aria-label="Strategy">
+          <div class="panel-head">
+            <h2>Strategy</h2>
+            <p>{{ strategyHelp[selectedStrategy] }}</p>
+          </div>
+
+          <div class="strategy-bar" role="listbox" aria-label="Retrieval strategy">
+            @for (strategy of strategies; track strategy) {
+              <button
+                type="button"
+                class="strategy-chip"
+                [class.strategy-chip--active]="selectedStrategy === strategy"
+                (click)="selectStrategy(strategy)"
+                [disabled]="isBusy"
+              >
+                {{ strategy }}
+              </button>
+            }
+          </div>
+
+          <div class="actions">
+            <button type="button" class="ghost" (click)="setTab('architecture')">
+              View layer graph
+            </button>
+            <button type="button" class="ghost" (click)="rebuildIndex()" [disabled]="isBusy">
+              Rebuild index
+            </button>
+            <button type="button" class="ghost" (click)="runEval()" [disabled]="isBusy || isEvalBusy">
+              {{ isEvalBusy ? 'Evaluating…' : 'Run eval' }}
+            </button>
+            <button
+              type="button"
+              class="ghost clear-btn"
+              (click)="clearAll()"
+              [disabled]="!canClear || isBusy || isEvalBusy"
+            >
+              Clear
+            </button>
+          </div>
+
+          @if (evalRows.length) {
+            <div class="eval-table">
+              <h3>Eval metrics</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>strategy</th>
+                    <th>recall</th>
+                    <th>faith</th>
+                    <th>cite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of evalRows; track row.strategy) {
+                    <tr>
+                      <td>{{ row.strategy }}</td>
+                      <td>{{ row.recall | number: '1.2-2' }}</td>
+                      <td>{{ row.faith | number: '1.2-2' }}</td>
+                      <td>{{ row.cite | number: '1.2-2' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+
+          <div class="suggestions">
+            <h3>Try asking</h3>
+            @for (tip of suggestions; track tip) {
+              <button type="button" class="tip" (click)="useSuggestion(tip)" [disabled]="isBusy">
+                {{ tip }}
+              </button>
+            }
+          </div>
+
+          <ul class="teach">
+            <li>Knowledge → retrieval → validation (enterprise interview frame).</li>
+            <li>Hybrid wins on ticket IDs like <span class="mono">HR-LEAVE-24</span>.</li>
+            <li>CRAG grades evidence and retries; Graph expands entity hops.</li>
+          </ul>
+        </section>
+
+        <section class="panel chat-panel" aria-label="Questions">
+          <div class="panel-head chat-head">
+            <div>
+              <h2>Ask</h2>
+              <p>Answers are grounded in the Contoso Ops seed KB.</p>
+            </div>
+            <button
+              type="button"
+              class="ghost clear-btn"
+              (click)="clearAll()"
+              [disabled]="!canClear || isBusy"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div class="chat-log" aria-live="polite">
+            @for (turn of turns; track $index) {
+              <article class="bubble" [class.bubble--user]="turn.role === 'user'">
+                @if (turn.strategy) {
+                  <div class="meta">
+                    <span>{{ turn.strategy }}</span>
+                    @if (turn.grade) {
+                      <span>grade {{ turn.grade }}</span>
+                    }
+                    @if (turn.verified !== undefined) {
+                      <span>{{ turn.verified ? 'verified' : 'unverified' }}</span>
+                    }
+                  </div>
+                }
+                <p>{{ turn.content }}</p>
+                @if (turn.sources?.length) {
+                  <div class="sources">
+                    @for (source of turn.sources; track source) {
+                      <span>{{ source }}</span>
+                    }
+                  </div>
+                }
+              </article>
+            } @empty {
+              <p class="empty">Pick a strategy, then ask about leave tickets, P1 ack time, or break-glass.</p>
+            }
+          </div>
+
+          <form [formGroup]="form" (ngSubmit)="ask()" class="ask-form">
+            <input
+              formControlName="question"
+              type="text"
+              placeholder="Ask the Contoso Ops knowledge base…"
+              autocomplete="off"
+            />
+            <button type="submit" class="primary" [disabled]="form.invalid || isBusy || !isOnline">
+              {{ isBusy ? 'Thinking…' : 'Ask' }}
+            </button>
+            <button
+              type="button"
+              class="ghost clear-btn"
+              (click)="clearAll()"
+              [disabled]="!canClear || isBusy"
+            >
+              Clear
+            </button>
+          </form>
+
+          @if (errorMessage) {
+            <p class="error">{{ errorMessage }}</p>
+          }
+
+          @if (lastNotes.length) {
+            <div class="notes">
+              <h3>Pipeline notes</h3>
+              <ul>
+                @for (note of lastNotes; track $index) {
+                  <li>{{ note }}</li>
+                }
+              </ul>
+            </div>
+          }
+
+          @if (lastHits.length) {
+            <div class="chunks">
+              <h3>Retrieved hits</h3>
+              @for (hit of lastHits; track hit.chunk_id || $index) {
+                <article>
+                  <header>
+                    <strong>{{ hit.source }}</strong>
+                    <span class="mono">score {{ hit.score | number: '1.3-3' }}</span>
+                  </header>
+                  <p>{{ hit.content }}</p>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      </div>
+    }
+  </div>
+
+  <footer class="nav-hint">
+    <a routerLink="/chat">Learning lab</a>
+    <span aria-hidden="true">·</span>
+    <a routerLink="/chat/mcp">MCP Agent</a>
+    <span aria-hidden="true">·</span>
+    <a routerLink="/chat/doc-rag">Doc Q&amp;A</a>
+    <span aria-hidden="true">·</span>
+    <a routerLink="/chat/person-finder">Person Finder</a>
+  </footer>
+</div>

@@ -44,18 +44,25 @@ app-vertical,
   margin: 0 !important;
 }
 
-#layout-wrapper .lab-container > app-chat {
+#layout-wrapper .lab-container > app-chat,
+#layout-wrapper .lab-container > app-doc-rag,
+#layout-wrapper .lab-container > app-person-finder,
+#layout-wrapper .lab-container > app-rag-architect {
   display: block !important;
   box-sizing: border-box !important;
   height: 100% !important;
-  min-height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
 }
 
-app-chat .agent-shell {
+app-chat .agent-shell,
+app-doc-rag .doc-shell,
+app-person-finder .finder-shell,
+app-rag-architect .doc-shell {
   box-sizing: border-box !important;
   width: 100% !important;
   height: 100% !important;
-  min-height: 100% !important;
+  min-height: 0 !important;
 }
 
 app-chat .workspace-grid {
@@ -76,9 +83,16 @@ app-chat .workspace-grid {
   }
 
   app-chat .agent-shell,
-  #layout-wrapper .lab-container > app-chat {
+  #layout-wrapper .lab-container > app-chat,
+  #layout-wrapper .lab-container > app-doc-rag,
+  #layout-wrapper .lab-container > app-person-finder,
+  #layout-wrapper .lab-container > app-rag-architect,
+  app-doc-rag .doc-shell,
+  app-person-finder .finder-shell,
+  app-rag-architect .doc-shell {
     height: auto !important;
     min-height: calc(100vh - 70px) !important;
+    overflow: visible !important;
   }
 }
 
