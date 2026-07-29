@@ -13,6 +13,7 @@ import {
   ShippingGraph,
   ShippingHealth,
   ShippingChoice,
+  ShippingRecovery,
   ShippingRunResult,
 } from "./shipping-api.service";
 
@@ -28,6 +29,7 @@ interface ChatMessage {
   typing?: boolean;
   chips?: string[];
   choices?: ShippingChoice[];
+  choicesActive?: boolean;
 }
 
 type GraphShape = "terminal" | "agent" | "tool" | "conditional" | "hitl";
@@ -52,7 +54,15 @@ interface VisualGraphEdge {
   label: string;
   labelX: number;
   labelY: number;
-  condition?: "chat" | "rag" | "write" | "retry" | "fix" | "blocked";
+  condition?:
+    | "chat"
+    | "rag"
+    | "db"
+    | "write"
+    | "retry"
+    | "fix"
+    | "blocked"
+    | "db_fallback";
 }
 
 @Component({
@@ -92,8 +102,16 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
   flowGuideOpen = false;
   error = "";
   private messageId = 1;
-  private followUpContext = "";
   private typeTimer: number | null = null;
+
+  /** Structured continuation while completing an incomplete request. */
+  basePrompt = "";
+  parameterPatches: Record<string, unknown> = {};
+  activeRecovery: ShippingRecovery | null = null;
+  continuationThreadId: string | null = null;
+  activeChoiceMessageId: number | null = null;
+  manualField = "";
+  manualValue = "";
 
   readonly examples = [
     {
@@ -133,12 +151,13 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
   ];
 
   readonly visualGraphNodes: VisualGraphNode[] = [
-    { id: "start", stateId: "__start__", label: "START", detail: "new request", x: 560, y: 20, width: 80, height: 54, shape: "terminal" },
-    { id: "understand", stateId: "understand", label: "understand intent", detail: "chat · RAG · write", x: 500, y: 105, width: 200, height: 90, shape: "conditional" },
+    { id: "start", stateId: "__start__", label: "START", detail: "prompt + history", x: 560, y: 10, width: 90, height: 50, shape: "terminal" },
+    { id: "intent", stateId: "intent", label: "intent router", detail: "rules · Qwen · history", x: 490, y: 90, width: 220, height: 90, shape: "conditional" },
     { id: "chat", stateId: "chat", label: "chat reply", detail: "Qwen, no tools", x: 80, y: 250, width: 180, height: 70, shape: "agent" },
     { id: "rewrite", stateId: "rewrite", label: "rewrite query", detail: "preserve identifiers", x: 400, y: 250, width: 180, height: 70, shape: "agent" },
-    { id: "operations", stateId: "operations", label: "operations", detail: "validate write input", x: 900, y: 250, width: 180, height: 70, shape: "agent" },
+    { id: "operations", stateId: "operations", label: "operations", detail: "SQL read / write validate", x: 900, y: 250, width: 180, height: 70, shape: "agent" },
     { id: "retrieve", stateId: "retrieve", label: "retrieve", detail: "PostgreSQL + policy", x: 400, y: 365, width: 180, height: 70, shape: "tool" },
+    { id: "db_answer", stateId: "db_answer", label: "DB answer", detail: "compose SQL result", x: 1120, y: 365, width: 180, height: 70, shape: "agent" },
     { id: "pricing", stateId: "pricing", label: "pricing", detail: "proposal only", x: 900, y: 365, width: 180, height: 70, shape: "agent" },
     { id: "rerank", stateId: "rerank", label: "dynamic rerank", detail: "relevance top-k", x: 400, y: 480, width: 180, height: 70, shape: "agent" },
     { id: "risk", stateId: "risk", label: "risk gate", detail: "block or review", x: 890, y: 480, width: 200, height: 90, shape: "conditional" },
@@ -154,22 +173,26 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
   ];
 
   readonly visualGraphEdges: VisualGraphEdge[] = [
-    { id: "start-understand", source: "start", target: "understand", path: "M600 74 L600 105", label: "prompt", labelX: 620, labelY: 92 },
-    { id: "understand-chat", source: "understand", target: "chat", path: "M500 150 C350 150 170 185 170 250", label: "chat", labelX: 335, labelY: 160, condition: "chat" },
-    { id: "understand-rewrite", source: "understand", target: "rewrite", path: "M570 195 L500 250", label: "read / RAG", labelX: 500, labelY: 220, condition: "rag" },
-    { id: "understand-operations", source: "understand", target: "operations", path: "M700 150 C820 150 990 185 990 250", label: "write", labelX: 830, labelY: 160, condition: "write" },
+    { id: "start-intent", source: "start", target: "intent", path: "M605 60 L600 90", label: "prompt + history", labelX: 620, labelY: 72 },
+    { id: "intent-chat", source: "intent", target: "chat", path: "M490 135 C340 135 170 185 170 250", label: "chat", labelX: 320, labelY: 150, condition: "chat" },
+    { id: "intent-rewrite", source: "intent", target: "rewrite", path: "M560 180 L500 250", label: "rag", labelX: 500, labelY: 210, condition: "rag" },
+    { id: "intent-operations-db", source: "intent", target: "operations", path: "M710 135 C820 135 960 185 990 250", label: "db", labelX: 800, labelY: 140, condition: "db" },
+    { id: "intent-operations", source: "intent", target: "operations", path: "M710 160 C840 185 1000 210 990 250", label: "write", labelX: 860, labelY: 180, condition: "write" },
     { id: "chat-response", source: "chat", target: "response", path: "M170 320 C170 940 500 1015 670 1015", label: "direct answer", labelX: 185, labelY: 610, condition: "chat" },
     { id: "rewrite-retrieve", source: "rewrite", target: "retrieve", path: "M490 320 L490 365", label: "query", labelX: 510, labelY: 348 },
     { id: "retrieve-rerank", source: "retrieve", target: "rerank", path: "M490 435 L490 480", label: "candidates", labelX: 525, labelY: 463 },
     { id: "rerank-grade", source: "rerank", target: "grade", path: "M490 550 L490 595", label: "top-k", labelX: 515, labelY: 578 },
     { id: "grade-rewrite", source: "grade", target: "rewrite", path: "M390 640 C300 640 300 285 400 285", label: "fail → retry", labelX: 285, labelY: 470, condition: "retry" },
     { id: "grade-generate", source: "grade", target: "generate", path: "M490 685 L490 735", label: "pass / give up", labelX: 540, labelY: 715 },
+    { id: "grade-operations", source: "grade", target: "operations", path: "M590 640 C780 640 930 400 990 320", label: "db fallback", labelX: 780, labelY: 560, condition: "db_fallback" },
     { id: "generate-verify", source: "generate", target: "verify", path: "M490 805 L490 840", label: "draft", labelX: 512, labelY: 828 },
     { id: "verify-fix", source: "verify", target: "fix", path: "M390 875 C350 850 320 850 280 875", label: "unsupported", labelX: 330, labelY: 842, condition: "fix" },
     { id: "fix-verify", source: "fix", target: "verify", path: "M280 915 C325 965 365 965 410 930", label: "recheck", labelX: 335, labelY: 972, condition: "fix" },
     { id: "verify-response", source: "verify", target: "response", path: "M590 895 C640 895 705 930 760 980", label: "verified", labelX: 675, labelY: 925 },
-    { id: "operations-pricing", source: "operations", target: "pricing", path: "M990 320 L990 365", label: "valid", labelX: 1010, labelY: 348 },
-    { id: "operations-response", source: "operations", target: "response", path: "M1080 285 C1170 285 1170 1015 850 1015", label: "invalid", labelX: 1145, labelY: 610, condition: "blocked" },
+    { id: "operations-pricing", source: "operations", target: "pricing", path: "M990 320 L990 365", label: "valid write", labelX: 1010, labelY: 348, condition: "write" },
+    { id: "operations-db-answer", source: "operations", target: "db_answer", path: "M1080 285 C1120 300 1180 330 1210 365", label: "db answer", labelX: 1145, labelY: 310, condition: "db" },
+    { id: "db-answer-response", source: "db_answer", target: "response", path: "M1210 435 C1210 900 900 1015 850 1015", label: "sql result", labelX: 1180, labelY: 700, condition: "db" },
+    { id: "operations-response", source: "operations", target: "response", path: "M1080 285 C1170 285 1170 1015 850 1015", label: "invalid", labelX: 1195, labelY: 610, condition: "blocked" },
     { id: "pricing-risk", source: "pricing", target: "risk", path: "M990 435 L990 480", label: "proposal", labelX: 1020, labelY: 462 },
     { id: "risk-response", source: "risk", target: "response", path: "M890 525 C790 525 760 800 760 980", label: "hard block", labelX: 790, labelY: 660, condition: "blocked" },
     { id: "risk-approval", source: "risk", target: "approval", path: "M990 570 L990 610", label: "reviewable", labelX: 1025, labelY: 598 },
@@ -230,17 +253,55 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
   }
 
   useExample(prompt: string): void {
+    this.clearRecovery();
     this.prompt = prompt;
     this.openChat();
     window.setTimeout(() => this.run(), 0);
   }
 
-  selectChoice(choice: ShippingChoice): void {
+  selectChoice(choice: ShippingChoice, messageId?: number): void {
     if (this.loading || this.approvalLoading || this.typing) {
       return;
     }
-    this.prompt = choice.value;
-    window.setTimeout(() => this.run(), 0);
+    if (
+      messageId != null &&
+      this.activeChoiceMessageId != null &&
+      messageId !== this.activeChoiceMessageId
+    ) {
+      return;
+    }
+    if (choice.kind === "dismiss") {
+      this.clearRecovery("Started a new request.");
+      return;
+    }
+    const patches = this.parseChoiceValue(choice);
+    this.addMessage("user", choice.label, "Selected option");
+    this.continueWithPatches(patches);
+  }
+
+  applyManualField(): void {
+    const field = this.manualField.trim();
+    const value = this.manualValue.trim();
+    if (!field || !value || this.loading || this.approvalLoading || this.typing) {
+      return;
+    }
+    this.addMessage("user", `${field} = ${value}`, "Manual entry");
+    this.manualValue = "";
+    this.continueWithPatches({ [field]: value });
+  }
+
+  clearRecovery(systemNote?: string): void {
+    this.basePrompt = "";
+    this.parameterPatches = {};
+    this.activeRecovery = null;
+    this.continuationThreadId = null;
+    this.activeChoiceMessageId = null;
+    this.manualField = "";
+    this.manualValue = "";
+    this.deactivateOldChoices();
+    if (systemNote) {
+      this.addMessage("system", systemNote, "Request reset");
+    }
   }
 
   setView(view: ResultView): void {
@@ -287,36 +348,22 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const requestPrompt = this.followUpContext
-      ? `${this.followUpContext}\nAdditional information from the user: ${prompt}`
-      : prompt;
-    this.loading = true;
-    this.error = "";
-    this.result = null;
-    this.shippingApi.run(requestPrompt).subscribe({
-      next: (result) => {
-        this.loading = false;
-        this.result = result;
-        this.followUpContext =
-          result.state.status === "invalid_request" ? requestPrompt : "";
-        this.graph = result.graph;
-        this.view = "graph";
-        this.typeOut(
-          result.assistant_message,
-          result.interrupted ? "Waiting for approval" : "Shipping assistant",
-          this.toolChips(result),
-          result.choices,
-        );
-      },
-      error: (err: HttpErrorResponse) => {
-        this.loading = false;
-        this.error = err.error?.detail || err.message;
-        this.typeOut(
-          `I couldn't complete that request: ${this.error}`,
-          "Error",
-        );
-      },
-    });
+    if (this.activeRecovery?.active) {
+      if (this.looksLikeNewIntent(prompt)) {
+        this.clearRecovery();
+        this.executeRun({ prompt });
+        return;
+      }
+      const field =
+        this.activeRecovery.missing_fields[0] ||
+        this.activeRecovery.invalid_fields[0] ||
+        this.manualField ||
+        "customer_code";
+      this.continueWithPatches({ [field]: prompt }, /* skipUserEcho */ true);
+      return;
+    }
+
+    this.executeRun({ prompt });
   }
 
   decide(approve: boolean, announce = true): void {
@@ -345,7 +392,7 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
         next: (result) => {
           this.approvalLoading = false;
           this.result = result;
-          this.followUpContext = "";
+          this.clearRecovery();
           this.graph = result.graph;
           this.view = "graph";
           this.typeOut(
@@ -363,6 +410,217 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
           );
         },
       });
+  }
+
+  private continueWithPatches(
+    patch: Record<string, unknown>,
+    skipUserEcho = false,
+  ): void {
+    void skipUserEcho;
+    this.parameterPatches = { ...this.parameterPatches, ...patch };
+    this.executeRun({
+      prompt: this.basePrompt || Object.values(patch).join(" "),
+      base_prompt: this.basePrompt || undefined,
+      patches: this.parameterPatches,
+      thread_id: this.continuationThreadId,
+    });
+  }
+
+  private executeRun(request: {
+    prompt: string;
+    base_prompt?: string;
+    patches?: Record<string, unknown>;
+    thread_id?: string | null;
+  }): void {
+    this.loading = true;
+    this.error = "";
+    this.result = null;
+    this.shippingApi
+      .run({
+        ...request,
+        history: this.recentChatHistory(request.prompt),
+      })
+      .subscribe({
+      next: (result) => {
+        this.loading = false;
+        this.result = result;
+        this.graph = result.graph;
+        this.view = "graph";
+        this.applyRecoveryState(result, request.prompt, request.base_prompt);
+        this.typeOut(
+          result.assistant_message,
+          result.interrupted ? "Waiting for approval" : "Shipping assistant",
+          this.toolChips(result),
+          result.choices,
+        );
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loading = false;
+        this.error = err.error?.detail || err.message;
+        this.typeOut(
+          `I couldn't complete that request: ${this.error}`,
+          "Error",
+        );
+      },
+    });
+  }
+
+  private recentChatHistory(excludePrompt?: string): Array<{
+    role: "user" | "assistant" | "system";
+    content: string;
+  }> {
+    const turns = this.messages
+      .filter((message) => !message.typing && message.content.trim())
+      .map((message) => ({
+        role: message.role,
+        content: message.content.trim().slice(0, 800),
+      }));
+    if (
+      excludePrompt &&
+      turns.length &&
+      turns[turns.length - 1].role === "user" &&
+      turns[turns.length - 1].content === excludePrompt.trim()
+    ) {
+      turns.pop();
+    }
+    return turns.slice(-8);
+  }
+
+  private applyRecoveryState(
+    result: ShippingRunResult,
+    prompt: string,
+    basePrompt?: string,
+  ): void {
+    const recovery = result.recovery;
+    if (recovery?.active) {
+      this.basePrompt = basePrompt || this.basePrompt || prompt;
+      this.continuationThreadId = result.thread_id;
+      this.activeRecovery = recovery;
+      const scalarFilled: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(recovery.filled || {})) {
+        if (
+          value == null ||
+          typeof value === "object" ||
+          key.startsWith("unrecognized_") ||
+          key === "selected_sailing"
+        ) {
+          continue;
+        }
+        scalarFilled[key] = value;
+      }
+      this.parameterPatches = {
+        ...this.parameterPatches,
+        ...scalarFilled,
+      };
+      if (!this.manualField) {
+        this.manualField =
+          recovery.missing_fields[0] || recovery.invalid_fields[0] || "";
+      }
+      return;
+    }
+    this.basePrompt = "";
+    this.parameterPatches = {};
+    this.activeRecovery = null;
+    this.continuationThreadId = null;
+    this.activeChoiceMessageId = null;
+  }
+
+  private looksLikeNewIntent(prompt: string): boolean {
+    const normalized = prompt.trim().toLowerCase();
+    if (normalized.length > 80) {
+      return true;
+    }
+    if (
+      /\b(more detail|more details|tell me more|elaborate|matching\b.{0,40}\brecords?)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    return /^(find|search|create|list|how many|track|show|give me|what is|overview)\b/.test(
+      normalized,
+    );
+  }
+
+  private fieldFromChoice(choice: ShippingChoice): string {
+    if (choice.field) {
+      return choice.field;
+    }
+    const kind = String(choice.kind || "");
+    if (kind.includes("customer")) {
+      return "customer_code";
+    }
+    if (kind.includes("sailing") || kind.includes("voyage")) {
+      return "voyage_number";
+    }
+    if (kind.includes("origin") || kind === "port") {
+      return "origin";
+    }
+    if (kind.includes("destination")) {
+      return "destination";
+    }
+    if (kind.includes("quote")) {
+      return "quote_ref";
+    }
+    if (kind.includes("booking")) {
+      return "booking_ref";
+    }
+    if (kind.includes("container")) {
+      return "container_type";
+    }
+    if (kind.includes("entity")) {
+      return "entity";
+    }
+    if (kind.includes("status")) {
+      return "status";
+    }
+    return "customer_code";
+  }
+
+  private parseChoiceValue(choice: ShippingChoice): Record<string, unknown> {
+    const raw = (choice.value || "").trim();
+    const patches: Record<string, unknown> = {};
+    if (!raw.includes(":")) {
+      const field = choice.field || this.fieldFromChoice(choice);
+      patches[field] = raw;
+      return patches;
+    }
+    for (const part of raw.split(/,\s*/)) {
+      if (!part.includes(":")) {
+        continue;
+      }
+      const index = part.indexOf(":");
+      const key = part.slice(0, index).trim();
+      const value = part.slice(index + 1).trim();
+      if (key === "sailing_id") {
+        const asNumber = Number(value);
+        patches[key] = Number.isFinite(asNumber) ? asNumber : value;
+      } else if (key === "container_qty" || key === "limit") {
+        const asNumber = Number(value);
+        if (Number.isFinite(asNumber)) {
+          patches[key] = asNumber;
+        }
+      } else if (key === "cargo_weight_kg") {
+        const asNumber = Number(value.replace(/,/g, ""));
+        patches[key] = Number.isFinite(asNumber) ? asNumber : value;
+      } else if (key === "dangerous_goods") {
+        patches[key] = ["true", "1", "yes"].includes(value.toLowerCase());
+      } else {
+        patches[key] = value;
+      }
+    }
+    if (!Object.keys(patches).length && choice.field) {
+      patches[choice.field] = raw;
+    }
+    return patches;
+  }
+
+  private deactivateOldChoices(): void {
+    this.messages = this.messages.map((message) =>
+      message.choices?.length
+        ? { ...message, choicesActive: false }
+        : message,
+    );
   }
 
   nodeState(id: string): "idle" | "active" | "waiting" | "blocked" {
@@ -385,7 +643,7 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
       return "blocked";
     }
     const map: Record<string, string[]> = {
-      understand: ["understand_agent"],
+      intent: ["intent_agent", "understand_agent"],
       rewrite: ["rewrite_agent"],
       retrieve: ["retrieve_agent"],
       rerank: ["rerank_agent"],
@@ -394,6 +652,7 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
       verify: ["verify_agent"],
       fix: ["fix_agent"],
       operations: ["operations_agent"],
+      db_answer: ["db_answer_agent"],
       pricing: ["pricing_agent"],
       risk: ["risk_agent"],
       approval_request: ["approval_agent"],
@@ -448,14 +707,29 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
       return false;
     }
     const lane = this.result.state.lane;
+    const agents = new Set(this.result.trace.map((step) => step.agent));
     if (edge.condition === "chat" && lane !== "chat") {
       return false;
     }
     if (edge.condition === "rag" && lane !== "rag") {
       return false;
     }
+    if (edge.condition === "db" && lane !== "db") {
+      return false;
+    }
     if (edge.condition === "write" && lane !== "write") {
       return false;
+    }
+    if (edge.condition === "db_fallback") {
+      // Active only when RAG graded fail and then operations/db_answer ran.
+      if (
+        !agents.has("grade_agent") ||
+        !agents.has("operations_agent") ||
+        !agents.has("db_answer_agent") ||
+        agents.has("generate_agent")
+      ) {
+        return false;
+      }
     }
     if (
       edge.condition === "retry" &&
@@ -499,6 +773,7 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
     const toolAgents = new Set([
       "retrieve_agent",
       "operations_agent",
+      "db_answer_agent",
       "pricing_agent",
       "execution_agent",
     ]);
@@ -575,11 +850,57 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
     if (this.result.state.lane === "rag" && this.result.state.verified) {
       return "Verified answer";
     }
+    if (this.result.state.lane === "db") {
+      return "DB answer";
+    }
     return this.result.response?.status || this.result.state.status;
   }
 
   get shortThreadId(): string {
     return this.result?.thread_id?.slice(0, 8) || "—";
+  }
+
+  get recoveryGroups() {
+    return this.activeRecovery?.groups || [];
+  }
+
+  get filledEntries(): Array<{ key: string; value: string }> {
+    const filled = this.activeRecovery?.filled || {};
+    return Object.keys(filled)
+      .filter((key) => !["selected_sailing"].includes(key))
+      .map((key) => ({ key, value: String(filled[key]) }));
+  }
+
+  get remainingFields(): string[] {
+    const recovery = this.activeRecovery;
+    if (!recovery) {
+      return [];
+    }
+    return Array.from(
+      new Set([...(recovery.missing_fields || []), ...(recovery.invalid_fields || [])]),
+    );
+  }
+
+  get manualFieldOptions(): string[] {
+    const known = [
+      "customer_code",
+      "origin",
+      "destination",
+      "voyage_number",
+      "sailing_id",
+      "container_type",
+      "container_qty",
+      "cargo_weight_kg",
+      "quote_ref",
+      "booking_ref",
+      "entity",
+      "status",
+    ];
+    return Array.from(new Set([...this.remainingFields, ...known]));
+  }
+
+  formatAction(action: string): string {
+    return (action || "request").replace(/_/g, " ");
   }
 
   private addMessage(
@@ -589,6 +910,9 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
     chips?: string[],
     choices?: ShippingChoice[],
   ): ChatMessage {
+    if (choices?.length) {
+      this.deactivateOldChoices();
+    }
     const message: ChatMessage = {
       id: ++this.messageId,
       role,
@@ -597,7 +921,11 @@ export class ShippingConsoleComponent implements OnInit, OnDestroy {
       time: this.now(),
       chips,
       choices,
+      choicesActive: Boolean(choices?.length),
     };
+    if (choices?.length) {
+      this.activeChoiceMessageId = message.id;
+    }
     this.messages = [...this.messages, message];
     this.scrollToBottom();
     return message;

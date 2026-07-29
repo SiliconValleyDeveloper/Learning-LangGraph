@@ -218,6 +218,47 @@ def policy_candidates() -> list[dict[str, Any]]:
     ]
 
 
+def recovery_candidates(recovery: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Ground recovery metadata and resolved alternatives as citeable evidence."""
+    if not recovery or not recovery.get("active"):
+        return []
+    filled = recovery.get("filled") or {}
+    groups = recovery.get("groups") or []
+    payload = {
+        "action": recovery.get("action"),
+        "filled": filled,
+        "missing_fields": recovery.get("missing_fields") or [],
+        "invalid_fields": recovery.get("invalid_fields") or [],
+        "options": [
+            {
+                "field": group.get("field"),
+                "title": group.get("title"),
+                "values": [
+                    choice.get("value")
+                    for choice in (group.get("choices") or [])
+                    if isinstance(choice, dict)
+                ][:8],
+            }
+            for group in groups
+            if isinstance(group, dict)
+        ],
+    }
+    return [
+        {
+            "source": "recovery:guided",
+            "source_type": "recovery",
+            "source_id": "recovery:guided",
+            "title": "Guided recovery context",
+            "content": (
+                "Guided recovery context\n"
+                + json.dumps(payload, default=str, ensure_ascii=False)
+            ),
+            "score": 0.55,
+            "payload": payload,
+        }
+    ]
+
+
 def rerank_evidence(
     query: str,
     candidates: list[dict[str, Any]],

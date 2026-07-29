@@ -89,10 +89,43 @@ export interface ShippingEvidence {
   content?: string;
 }
 
+export type ShippingChoiceKind =
+  | "customer"
+  | "sailing"
+  | "port"
+  | "route"
+  | "booking_ref"
+  | "quote_ref"
+  | "container_type"
+  | "entity"
+  | "status"
+  | "field_value"
+  | "dismiss";
+
 export interface ShippingChoice {
-  kind: "customer" | "sailing" | "route";
+  kind: ShippingChoiceKind | string;
+  field?: string;
   label: string;
   value: string;
+  reason?: string;
+}
+
+export interface ShippingRecoveryGroup {
+  field: string;
+  title: string;
+  choices: ShippingChoice[];
+}
+
+export interface ShippingRecovery {
+  active: boolean;
+  action: string;
+  filled: Record<string, unknown>;
+  missing_fields: string[];
+  invalid_fields: string[];
+  errors: string[];
+  groups: ShippingRecoveryGroup[];
+  choices: ShippingChoice[];
+  message?: string;
 }
 
 export interface ShippingResponse {
@@ -119,6 +152,20 @@ export interface ShippingRunResult {
   graph: ShippingGraph;
   evidence?: ShippingEvidence[];
   choices?: ShippingChoice[];
+  recovery?: ShippingRecovery;
+}
+
+export interface ShippingChatTurn {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface ShippingRunRequest {
+  prompt: string;
+  thread_id?: string | null;
+  patches?: Record<string, unknown>;
+  base_prompt?: string | null;
+  history?: ShippingChatTurn[];
 }
 
 @Injectable({ providedIn: "root" })
@@ -135,8 +182,18 @@ export class ShippingApiService {
     return this.http.get<ShippingGraph>(`${this.base}/graph`);
   }
 
-  run(prompt: string): Observable<ShippingRunResult> {
-    return this.http.post<ShippingRunResult>(`${this.base}/run`, { prompt });
+  run(request: ShippingRunRequest | string): Observable<ShippingRunResult> {
+    const body =
+      typeof request === "string"
+        ? { prompt: request, history: [] as ShippingChatTurn[] }
+        : {
+            prompt: request.prompt,
+            thread_id: request.thread_id || undefined,
+            patches: request.patches || {},
+            base_prompt: request.base_prompt || undefined,
+            history: request.history || [],
+          };
+    return this.http.post<ShippingRunResult>(`${this.base}/run`, body);
   }
 
   decide(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -15,16 +16,23 @@ from Learning.llm import get_llm
 from projects.shipping_logistics_agent import repository
 from projects.shipping_logistics_agent.config import load_config
 from projects.shipping_logistics_agent.prompt_parser import (
-    classify_action,
     extract_parameters,
+    resolve_intent,
+    resolve_lane,
 )
 from projects.shipping_logistics_agent.rag import (
     build_candidates,
     evidence_context,
     grade_evidence,
     policy_candidates,
+    recovery_candidates,
     rerank_evidence,
     verify_answer,
+)
+from projects.shipping_logistics_agent.resolvers import (
+    build_recovery,
+    resolve_customer,
+    resolve_voyage,
 )
 
 WRITE_ACTIONS = {"create_quotation", "create_booking"}
@@ -36,6 +44,8 @@ class ShippingState(TypedDict):
     action: str
     plan: list[str]
     parameters: dict[str, Any]
+    parameter_patches: dict[str, Any]
+    chat_history: list[dict[str, str]]
     proposal: dict[str, Any]
     risk_review: dict[str, Any]
     approval: dict[str, Any]
@@ -43,6 +53,7 @@ class ShippingState(TypedDict):
     response: dict[str, Any]
     status: str
     errors: list[str]
+    recovery: dict[str, Any]
     trace: list[dict[str, Any]]
     lane: str
     route_reason: str
@@ -62,7 +73,12 @@ class ShippingState(TypedDict):
 
 GRAPH_NODES = [
     {"id": "__start__", "label": "START", "kind": "start"},
-    {"id": "understand", "label": "Understand intent", "kind": "router"},
+    {
+        "id": "intent",
+        "label": "Intent router",
+        "kind": "router",
+        "detail": "rules + Qwen + chat history",
+    },
     {"id": "rewrite", "label": "Rewrite query", "kind": "agent"},
     {"id": "retrieve", "label": "Retrieve evidence", "kind": "tools"},
     {"id": "rerank", "label": "Rerank evidence", "kind": "agent"},
@@ -71,6 +87,7 @@ GRAPH_NODES = [
     {"id": "verify", "label": "Verify answer", "kind": "router"},
     {"id": "fix", "label": "Fix answer", "kind": "agent"},
     {"id": "operations", "label": "Operations agent", "kind": "agent"},
+    {"id": "db_answer", "label": "Compose DB answer", "kind": "agent"},
     {"id": "pricing", "label": "Pricing agent", "kind": "agent"},
     {"id": "risk", "label": "Risk/compliance agent", "kind": "agent"},
     {"id": "approval_request", "label": "Approval request", "kind": "approval"},
@@ -81,20 +98,24 @@ GRAPH_NODES = [
 ]
 
 GRAPH_EDGES = [
-    {"source": "__start__", "target": "understand", "label": ""},
-    {"source": "understand", "target": "response", "label": "chat"},
-    {"source": "understand", "target": "rewrite", "label": "read / RAG"},
-    {"source": "understand", "target": "operations", "label": "write"},
+    {"source": "__start__", "target": "intent", "label": "prompt + history"},
+    {"source": "intent", "target": "response", "label": "chat"},
+    {"source": "intent", "target": "rewrite", "label": "rag"},
+    {"source": "intent", "target": "operations", "label": "db"},
+    {"source": "intent", "target": "operations", "label": "write"},
     {"source": "rewrite", "target": "retrieve", "label": "query"},
     {"source": "retrieve", "target": "rerank", "label": "candidates"},
     {"source": "rerank", "target": "grade", "label": "top-k"},
     {"source": "grade", "target": "rewrite", "label": "retry"},
     {"source": "grade", "target": "generate", "label": "pass / give up"},
+    {"source": "grade", "target": "operations", "label": "db fallback"},
     {"source": "generate", "target": "verify", "label": "draft"},
     {"source": "verify", "target": "fix", "label": "unsupported"},
     {"source": "fix", "target": "verify", "label": "recheck"},
     {"source": "verify", "target": "response", "label": "verified"},
     {"source": "operations", "target": "response", "label": "invalid"},
+    {"source": "operations", "target": "db_answer", "label": "db answer"},
+    {"source": "db_answer", "target": "response", "label": "sql result"},
     {"source": "operations", "target": "pricing", "label": "quote/booking"},
     {"source": "pricing", "target": "risk", "label": "proposal"},
     {"source": "pricing", "target": "response", "label": "invalid proposal"},
@@ -107,22 +128,29 @@ GRAPH_EDGES = [
 ]
 
 MERMAID = """flowchart TD
-    START([START]) --> UND{Understand intent}
-    UND -->|chat| JSON[JSON response]
-    UND -->|read / RAG| RW[Rewrite query]
+    START([START]) --> INT[Intent router]
+    INT -->|rules clear| ROUTE{Route by lane}
+    INT -->|ambiguous / follow-up| QWEN[Qwen intent + history]
+    QWEN --> ROUTE
+    ROUTE -->|chat| JSON[JSON response]
+    ROUTE -->|rag| RW[Rewrite query]
+    ROUTE -->|db facts| OPS[Operations agent]
+    ROUTE -->|write| OPS
     RW --> RET[Retrieve SQL + policy evidence]
     RET --> RR[Rerank top-k]
     RR --> GR{Grade evidence}
     GR -->|retry| RW
     GR -->|pass / give up| GEN[Generate grounded answer]
+    GR -->|db fallback| OPS
     GEN --> VER{Verify citations and references}
     VER -->|fix| FIX[Fix answer]
     FIX --> VER
     VER -->|verified| JSON
-    UND -->|write| OPS[Operations agent]
+    OPS -->|db answer| DBA[Compose DB answer]
+    DBA --> JSON
     OPS -->|quotation / booking| PRICE[Pricing agent]
     OPS -->|invalid| JSON
-    PRICE --> RISK[Risk & compliance]
+    PRICE --> RISK[Risk and compliance]
     RISK -->|hard block| JSON
     RISK -->|reviewable| REQ[Approval request]
     REQ --> HUMAN{{Human approval}}
@@ -143,14 +171,29 @@ def _trace(
     return entries
 
 
-def supervisor_agent(state: ShippingState) -> dict[str, Any]:
-    action = classify_action(state["prompt"])
+def intent_agent(state: ShippingState) -> dict[str, Any]:
+    history = list(state.get("chat_history") or [])
+    intent = resolve_intent(state["prompt"], history=history)
+    action = str(intent["action"])
+    patches = dict(state.get("parameter_patches") or {})
+    for key, value in (intent.get("param_hints") or {}).items():
+        patches.setdefault(key, value)
+    params = (
+        {}
+        if action == "conversation"
+        else extract_parameters(
+            state["prompt"],
+            action,
+            patches=patches or None,
+        )
+    )
+    lane = resolve_lane(action, state["prompt"], params)
+    if intent.get("lane") == "db" and action not in WRITE_ACTIONS | {"conversation"}:
+        lane = "db"
+    if action in WRITE_ACTIONS:
+        lane = "write"
     if action == "conversation":
         lane = "chat"
-    elif action in WRITE_ACTIONS:
-        lane = "write"
-    else:
-        lane = "rag"
     rag_plan = [
         "rewrite_agent",
         "retrieve_agent",
@@ -160,13 +203,18 @@ def supervisor_agent(state: ShippingState) -> dict[str, Any]:
         "verify_agent",
         "response_agent",
     ]
+    db_plan = [
+        "operations_agent",
+        "db_answer_agent",
+        "response_agent",
+    ]
     plans = {
         "conversation": ["response_agent"],
         "reference_data": rag_plan,
-        "data_query": rag_plan,
-        "get_quotation": rag_plan,
-        "search_sailings": rag_plan,
-        "track_booking": rag_plan,
+        "data_query": db_plan if lane == "db" else rag_plan,
+        "get_quotation": db_plan if lane == "db" else rag_plan,
+        "search_sailings": db_plan if lane == "db" else rag_plan,
+        "track_booking": db_plan if lane == "db" else rag_plan,
         "create_quotation": [
             "operations_agent",
             "pricing_agent",
@@ -182,40 +230,55 @@ def supervisor_agent(state: ShippingState) -> dict[str, Any]:
             "execute",
         ],
     }
+    reason = str(intent.get("reason") or f"{action} uses the {lane} lane")
     return {
         "action": action,
         "plan": plans[action],
+        "parameters": params if lane == "db" else state.get("parameters") or {},
+        "parameter_patches": patches,
         "lane": lane,
-        "route_reason": f"{action} uses the {lane} lane",
+        "route_reason": reason,
         "status": "planned",
         "trace": _trace(
             state,
-            "understand_agent",
-            f"Understood {action}; routed to {lane} lane",
+            "intent_agent",
+            f"Intent {action} → {lane} lane ({intent.get('source')})",
             action=action,
             lane=lane,
+            intent_source=intent.get("source"),
+            follow_up=bool(intent.get("follow_up")),
+            reason=reason,
         ),
     }
 
 
-def _after_understand(
+def _after_intent(
     state: ShippingState,
 ) -> Literal["response", "rewrite", "operations"]:
     lane = state.get("lane")
     if lane == "chat":
         return "response"
-    if lane == "write":
+    if lane in {"write", "db"}:
         return "operations"
     return "rewrite"
 
 
 def operations_agent(state: ShippingState) -> dict[str, Any]:
     action = state["action"]
+    patches = state.get("parameter_patches") or {}
     params = (
         {}
         if action == "conversation"
-        else extract_parameters(state["prompt"], action)
+        else extract_parameters(
+            state["prompt"],
+            action,
+            patches=patches or None,
+        )
     )
+    if params.get("customer_code"):
+        resolved = resolve_customer(str(params["customer_code"]))
+        if resolved["status"] == "resolved":
+            params["customer_code"] = resolved["value"]
     errors: list[str] = []
     result: dict[str, Any] | list[dict[str, Any]] = {}
     for role in ("origin", "destination"):
@@ -258,9 +321,12 @@ def operations_agent(state: ShippingState) -> dict[str, Any]:
                     limit=int(params.get("limit") or 10),
                 )
         elif action == "get_quotation":
-            result = repository.get_quotation(params["quote_ref"])
-            if not result:
-                errors.append("Quotation not found")
+            if not params.get("quote_ref"):
+                errors.append("Missing quotation reference (SLQ-...)")
+            else:
+                result = repository.get_quotation(params["quote_ref"])
+                if not result:
+                    errors.append("Quotation not found")
         elif action == "search_sailings":
             missing = [
                 key for key in ("origin", "destination") if not params.get(key)
@@ -311,6 +377,10 @@ def operations_agent(state: ShippingState) -> dict[str, Any]:
                         "available_ports": ports,
                         "available_sailings": available.get("records") or [],
                     }
+                    errors.append(
+                        f"No scheduled sailing from {params['origin']} to "
+                        f"{params['destination']}"
+                    )
         elif action == "track_booking":
             if not params.get("booking_ref"):
                 errors.append("Missing booking reference (SLB-...)")
@@ -337,32 +407,21 @@ def operations_agent(state: ShippingState) -> dict[str, Any]:
                 or []
             )
             if not params.get("sailing_id") and params.get("voyage_number"):
-                matched = [
-                    sailing
-                    for sailing in sailing_catalog
-                    if sailing.get("voyage_number") == params["voyage_number"]
-                ]
-                if matched:
-                    selected = matched[0]
-                    route_matches = (
-                        not params.get("origin")
-                        or selected.get("origin") == params["origin"]
-                    ) and (
-                        not params.get("destination")
-                        or selected.get("destination") == params["destination"]
+                voyage_resolution = resolve_voyage(
+                    str(params["voyage_number"]),
+                    origin=params.get("origin"),
+                    destination=params.get("destination"),
+                )
+                if voyage_resolution["status"] == "resolved":
+                    selected = voyage_resolution["value"]
+                    params["sailing_id"] = selected["sailing_id"]
+                    params["selected_sailing"] = selected
+                    params.setdefault("origin", selected.get("origin"))
+                    params.setdefault("destination", selected.get("destination"))
+                elif voyage_resolution["status"] == "ambiguous":
+                    errors.append(
+                        f"Voyage {params['voyage_number']} matched multiple sailings"
                     )
-                    if not route_matches:
-                        errors.append(
-                            f"Voyage {params['voyage_number']} does not match "
-                            f"{params.get('origin')} to {params.get('destination')}"
-                        )
-                    elif selected.get("status") != "scheduled":
-                        errors.append(
-                            f"Voyage {params['voyage_number']} is not scheduled"
-                        )
-                    else:
-                        params["sailing_id"] = selected["sailing_id"]
-                        params["selected_sailing"] = selected
                 else:
                     errors.append(
                         f"Voyage {params['voyage_number']} was not found"
@@ -417,10 +476,33 @@ def operations_agent(state: ShippingState) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         errors.append(str(exc))
 
+    recovery = (
+        build_recovery(action, params, errors)
+        if errors
+        else {
+            "active": False,
+            "action": action,
+            "filled": {
+                key: value
+                for key, value in params.items()
+                if value not in (None, "", [], {})
+                and not str(key).startswith("unrecognized_")
+                and key != "selected_sailing"
+            },
+            "missing_fields": [],
+            "invalid_fields": [],
+            "errors": [],
+            "groups": [],
+            "choices": [],
+            "message": "",
+        }
+    )
+
     return {
         "parameters": params,
         "result": result,
         "errors": errors,
+        "recovery": recovery,
         "status": (
             "invalid_request"
             if errors
@@ -492,8 +574,10 @@ def retrieve_agent(state: ShippingState) -> dict[str, Any]:
         error
         for error in errors
         if error.startswith("Missing route parameters:")
+        or error.startswith("No scheduled sailing from ")
     ]
     hard_errors = [error for error in errors if error not in soft_errors]
+    recovery = operation.get("recovery") or {}
     candidates = (
         []
         if hard_errors
@@ -501,11 +585,13 @@ def retrieve_agent(state: ShippingState) -> dict[str, Any]:
     )
     if not hard_errors:
         candidates.extend(policy_candidates())
+    candidates.extend(recovery_candidates(recovery))
     attempt = int(state.get("retrieval_attempts") or 0) + 1
     return {
         "parameters": operation.get("parameters") or {},
         "result": result,
         "errors": errors,
+        "recovery": recovery,
         "candidates": candidates,
         "retrieval_attempts": attempt,
         "status": "evidence_retrieved" if candidates else "no_evidence",
@@ -575,10 +661,21 @@ def grade_agent(state: ShippingState) -> dict[str, Any]:
     }
 
 
-def _after_grade(state: ShippingState) -> Literal["rewrite", "generate"]:
+def _after_grade(
+    state: ShippingState,
+) -> Literal["rewrite", "generate", "operations"]:
     cfg = load_config()
+    grade = state.get("evidence_grade")
+    action = str(state.get("action") or "")
+    # When RAG cannot support a structured read, fall back to authoritative SQL.
+    if grade == "fail" and action in {
+        "data_query",
+        "get_quotation",
+        "track_booking",
+    }:
+        return "operations"
     if (
-        state.get("evidence_grade") == "fail"
+        grade == "fail"
         and not state.get("errors")
         and int(state.get("retrieval_attempts") or 0)
         <= cfg.max_retrieval_retries
@@ -670,6 +767,29 @@ def generate_agent(state: ShippingState) -> dict[str, Any]:
 def verify_agent(state: ShippingState) -> dict[str, Any]:
     answer = state.get("answer") or ""
     evidence = list(state.get("evidence") or [])
+    # Structured quotation/booking/sailing lists are already SQL-grounded.
+    if state.get("action") == "data_query" and isinstance(
+        state.get("result"), dict
+    ) and (state.get("result") or {}).get("entity") in {
+        "quotations",
+        "sailings",
+        "bookings",
+    } and (state.get("result") or {}).get("records"):
+        if answer and "[S" not in answer and evidence:
+            answer = f"{answer} [S1]"
+        return {
+            "answer": answer,
+            "verified": True,
+            "verification_issues": [],
+            "status": "verified",
+            "trace": _trace(
+                state,
+                "verify_agent",
+                "Accepted deterministic SQL list answer",
+                verified=True,
+                issues=[],
+            ),
+        }
     verified, issues = verify_answer(
         answer,
         evidence,
@@ -701,8 +821,33 @@ def _after_verify(state: ShippingState) -> Literal["fix", "response"]:
 
 def fix_agent(state: ShippingState) -> dict[str, Any]:
     evidence = list(state.get("evidence") or [])
-    context = evidence_context(evidence)
     attempts = int(state.get("fix_attempts") or 0) + 1
+    # Deterministic SQL list answers (quotation amounts, sailing catalogs) should
+    # not be rewritten by the LLM repair pass.
+    if state.get("action") == "data_query" and isinstance(
+        state.get("result"), dict
+    ) and (state.get("result") or {}).get("entity") in {
+        "quotations",
+        "sailings",
+        "bookings",
+    }:
+        answer = _fallback_answer({**state, "errors": []})
+        if evidence and answer and "[S" not in answer:
+            answer += " [S1]"
+        return {
+            "answer": answer,
+            "fix_attempts": attempts,
+            "verified": True,
+            "verification_issues": [],
+            "status": "answer_fixed",
+            "trace": _trace(
+                state,
+                "fix_agent",
+                "Restored deterministic SQL list answer",
+                fix_attempt=attempts,
+            ),
+        }
+    context = evidence_context(evidence)
     try:
         if not load_config().use_llm_answers:
             raise RuntimeError("LLM answer repair disabled")
@@ -744,10 +889,33 @@ def fix_agent(state: ShippingState) -> dict[str, Any]:
 
 def _after_operations(
     state: ShippingState,
-) -> Literal["pricing", "response"]:
+) -> Literal["pricing", "db_answer", "response"]:
     if state.get("errors"):
         return "response"
-    return "pricing" if state["action"] in WRITE_ACTIONS else "response"
+    if state["action"] in WRITE_ACTIONS:
+        return "pricing"
+    # DB lane and RAG→DB fallback both compose a deterministic SQL answer.
+    return "db_answer"
+
+
+def db_answer_agent(state: ShippingState) -> dict[str, Any]:
+    """Format authoritative PostgreSQL results without RAG generation."""
+    answer = _fallback_answer({**state, "errors": list(state.get("errors") or [])})
+    if state.get("errors"):
+        answer = _fallback_answer(state)
+    return {
+        "answer": answer,
+        "verified": True,
+        "verification_issues": [],
+        "lane": "db",
+        "status": "db_answer_ready",
+        "trace": _trace(
+            state,
+            "db_answer_agent",
+            "Composed deterministic answer from PostgreSQL results",
+            lane="db",
+        ),
+    }
 
 
 def pricing_agent(state: ShippingState) -> dict[str, Any]:
@@ -927,16 +1095,96 @@ def _fallback_answer(state: ShippingState) -> str:
             )
         records = data.get("records") if isinstance(data.get("records"), list) else []
         if entity == "quotations" and records:
-            latest = records[0]
-            total = int(data.get("total_matching", len(records)))
+            prompt_lower = str(state.get("prompt") or "").lower()
+            wants_amounts = bool(
+                (state.get("parameters") or {}).get("include_amounts")
+                or re.search(
+                    r"\b(amount|amounts|total(?:s)?|sum|calculate|calc|list|"
+                    r"show|display|last|latest|recent)\b",
+                    prompt_lower,
+                )
+            )
+            limit = int(
+                (state.get("parameters") or {}).get("limit")
+                or data.get("returned")
+                or len(records)
+            )
+            rows = records[: max(1, min(limit, len(records)))]
+            if wants_amounts or len(rows) > 1:
+                lines = []
+                amount_sum = 0.0
+                for index, item in enumerate(rows, start=1):
+                    total = item.get("total_usd")
+                    try:
+                        amount = float(total)
+                    except (TypeError, ValueError):
+                        amount = 0.0
+                    amount_sum += amount
+                    lines.append(
+                        f"{index}. {item.get('quote_ref') or item.get('reference')} · "
+                        f"{item.get('customer_code')} · "
+                        f"{item.get('origin')}→{item.get('destination')} · "
+                        f"status {item.get('status')} · USD {total}"
+                    )
+                return (
+                    f"Here are the last {len(lines)} quotation amount"
+                    f"{'' if len(lines) == 1 else 's'} from PostgreSQL:\n- "
+                    + "\n- ".join(lines)
+                    + f"\nCombined total: USD {round(amount_sum, 2)}."
+                )
+            latest = rows[0]
+            total_matching = int(data.get("total_matching", len(records)))
             return (
-                f"There {'is' if total == 1 else 'are'} {total} quotation"
-                f"{'' if total == 1 else 's'} in the system. The latest is "
+                f"There {'is' if total_matching == 1 else 'are'} {total_matching} "
+                f"quotation{'' if total_matching == 1 else 's'} in the system. "
+                f"The latest is "
                 f"{latest.get('quote_ref') or latest.get('reference')} for "
                 f"{latest.get('customer_code')} from {latest.get('origin')} to "
                 f"{latest.get('destination')}, status {latest.get('status')}, "
                 f"total USD {latest.get('total_usd')}, created "
                 f"{latest.get('created_at')}."
+            )
+        if entity == "bookings" and records:
+            prompt_lower = str(state.get("prompt") or "").lower()
+            wants_detail = bool(
+                re.search(
+                    r"\b(detail|details|more detail|more details|list|show|"
+                    r"display|tell me more|elaborate)\b",
+                    prompt_lower,
+                )
+            )
+            limit = int(
+                (state.get("parameters") or {}).get("limit")
+                or data.get("returned")
+                or len(records)
+            )
+            rows = records[: max(1, min(limit, len(records)))]
+            if wants_detail or len(rows) > 1:
+                lines = []
+                for index, item in enumerate(rows, start=1):
+                    lines.append(
+                        f"{index}. {item.get('booking_ref') or item.get('reference')} · "
+                        f"quote {item.get('quote_ref') or '—'} · "
+                        f"{item.get('customer_code')} · "
+                        f"{item.get('origin')}→{item.get('destination')} · "
+                        f"voyage {item.get('voyage_number') or '—'} · "
+                        f"status {item.get('status')}"
+                    )
+                status = (state.get("parameters") or {}).get("status")
+                status_bit = f" ({status})" if status else ""
+                return (
+                    f"Here are {len(lines)} booking{'' if len(lines) == 1 else 's'}"
+                    f"{status_bit} from PostgreSQL:\n- "
+                    + "\n- ".join(lines)
+                )
+            latest = rows[0]
+            total_matching = int(data.get("total_matching", len(records)))
+            return (
+                f"There {'is' if total_matching == 1 else 'are'} {total_matching} "
+                f"booking{'' if total_matching == 1 else 's'} in the system. "
+                f"The latest is "
+                f"{latest.get('booking_ref') or latest.get('reference')} for "
+                f"{latest.get('customer_code')}, status {latest.get('status')}."
             )
         if entity == "sailings" and records:
             evidence = state.get("evidence") or []
@@ -1169,7 +1417,7 @@ def response_agent(state: ShippingState) -> dict[str, Any]:
         "data": state.get("result") or state.get("proposal") or {},
         "errors": state.get("errors") or [],
         "approval": state.get("approval") or None,
-        "verified": state.get("verified") if state.get("lane") == "rag" else None,
+        "verified": state.get("verified") if state.get("lane") in {"rag", "db"} else None,
         "evidence_grade": state.get("evidence_grade") or "n/a",
         "citations": [
             {
@@ -1196,7 +1444,7 @@ def response_agent(state: ShippingState) -> dict[str, Any]:
 
 def build_graph(checkpointer: SqliteSaver):
     builder = StateGraph(ShippingState)
-    builder.add_node("understand", supervisor_agent)
+    builder.add_node("intent", intent_agent)
     builder.add_node("rewrite", rewrite_agent)
     builder.add_node("retrieve", retrieve_agent)
     builder.add_node("rerank", rerank_agent)
@@ -1205,16 +1453,17 @@ def build_graph(checkpointer: SqliteSaver):
     builder.add_node("verify", verify_agent)
     builder.add_node("fix", fix_agent)
     builder.add_node("operations", operations_agent)
+    builder.add_node("db_answer", db_answer_agent)
     builder.add_node("pricing", pricing_agent)
     builder.add_node("risk", risk_agent)
     builder.add_node("approval_request", approval_request_agent)
     builder.add_node("execute", execute_agent)
     builder.add_node("response", response_agent)
 
-    builder.add_edge(START, "understand")
+    builder.add_edge(START, "intent")
     builder.add_conditional_edges(
-        "understand",
-        _after_understand,
+        "intent",
+        _after_intent,
         {
             "response": "response",
             "rewrite": "rewrite",
@@ -1227,7 +1476,11 @@ def build_graph(checkpointer: SqliteSaver):
     builder.add_conditional_edges(
         "grade",
         _after_grade,
-        {"rewrite": "rewrite", "generate": "generate"},
+        {
+            "rewrite": "rewrite",
+            "generate": "generate",
+            "operations": "operations",
+        },
     )
     builder.add_edge("generate", "verify")
     builder.add_conditional_edges(
@@ -1239,8 +1492,13 @@ def build_graph(checkpointer: SqliteSaver):
     builder.add_conditional_edges(
         "operations",
         _after_operations,
-        {"pricing": "pricing", "response": "response"},
+        {
+            "pricing": "pricing",
+            "db_answer": "db_answer",
+            "response": "response",
+        },
     )
+    builder.add_edge("db_answer", "response")
     builder.add_conditional_edges(
         "pricing",
         _after_pricing,
@@ -1276,13 +1534,21 @@ def _config(thread_id: str) -> dict[str, Any]:
     }
 
 
-def _initial_state(prompt: str, thread_id: str) -> ShippingState:
+def _initial_state(
+    prompt: str,
+    thread_id: str,
+    *,
+    parameter_patches: dict[str, Any] | None = None,
+    chat_history: list[dict[str, str]] | None = None,
+) -> ShippingState:
     return {
         "thread_id": thread_id,
         "prompt": prompt,
         "action": "",
         "plan": [],
         "parameters": {},
+        "parameter_patches": parameter_patches or {},
+        "chat_history": chat_history or [],
         "proposal": {},
         "risk_review": {},
         "approval": {},
@@ -1290,6 +1556,7 @@ def _initial_state(prompt: str, thread_id: str) -> ShippingState:
         "response": {},
         "status": "new",
         "errors": [],
+        "recovery": {},
         "trace": [],
         "lane": "",
         "route_reason": "",
@@ -1330,85 +1597,6 @@ def _pending_answer(state: dict[str, Any]) -> str:
     return message + " Human approval is required before I write this to PostgreSQL."
 
 
-def _recovery_choices(state: dict[str, Any]) -> list[dict[str, str]]:
-    if state.get("status") != "invalid_request":
-        return []
-    action = state.get("action")
-    params = state.get("parameters") or {}
-    errors = [str(error) for error in state.get("errors") or []]
-    error_text = " ".join(errors).lower()
-    choices: list[dict[str, str]] = []
-
-    references = repository.list_reference_data()
-    known_customers = {
-        str(customer.get("customer_code"))
-        for customer in references.get("customers") or []
-    }
-    needs_customer = action == "create_quotation" and (
-        not params.get("customer_code")
-        or params.get("customer_code") not in known_customers
-        or "customer" in error_text
-    )
-    if needs_customer:
-        for customer in references.get("customers") or []:
-            code = str(customer.get("customer_code"))
-            choices.append(
-                {
-                    "kind": "customer",
-                    "label": f"{code} — {customer.get('name')}",
-                    "value": f"customer_code: {code}",
-                }
-            )
-
-    needs_sailing = action in {"create_quotation", "search_sailings"} and (
-        not params.get("sailing_id")
-        or "sailing" in error_text
-        or "voyage" in error_text
-        or "route" in error_text
-    )
-    if needs_sailing:
-        sailings = (
-            repository.query_shipping_data(
-                "sailings",
-                operation="list",
-                status="scheduled",
-                limit=25,
-            ).get("records")
-            or []
-        )
-        origin = params.get("origin")
-        destination = params.get("destination")
-        route_matches = [
-            sailing
-            for sailing in sailings
-            if (not origin or sailing.get("origin") == origin)
-            and (
-                not destination
-                or sailing.get("destination") == destination
-            )
-        ]
-        selected_sailings = route_matches or sailings
-        for sailing in selected_sailings[:8]:
-            voyage = str(sailing.get("voyage_number"))
-            sailing_origin = str(sailing.get("origin"))
-            sailing_destination = str(sailing.get("destination"))
-            choices.append(
-                {
-                    "kind": "sailing",
-                    "label": (
-                        f"{voyage} — {sailing_origin} → "
-                        f"{sailing_destination}"
-                    ),
-                    "value": (
-                        f"voyage_number: {voyage}, "
-                        f"origin: {sailing_origin}, "
-                        f"destination: {sailing_destination}"
-                    ),
-                }
-            )
-    return choices
-
-
 def _public_result(
     state: dict[str, Any],
     thread_id: str,
@@ -1425,20 +1613,27 @@ def _public_result(
             else "The workflow completed."
         )
     )
-    choices = _recovery_choices(state)
-    if choices:
-        lines = "\n".join(
-            f"- {choice['label']}" for choice in choices
+    recovery = state.get("recovery") or {}
+    if state.get("status") == "invalid_request" and not recovery.get("active"):
+        recovery = build_recovery(
+            str(state.get("action") or ""),
+            state.get("parameters") or {},
+            list(state.get("errors") or []),
         )
-        assistant_message = (
-            f"{assistant_message}\n\nChoose a valid option below:\n{lines}"
-        )
+    choices = list(recovery.get("choices") or [])
+    if recovery.get("active") and recovery.get("message"):
+        lines = "\n".join(f"- {choice['label']}" for choice in choices)
+        suffix = f"\n\n{recovery['message']}"
+        if lines:
+            suffix += f"\n{lines}"
+        assistant_message = f"{assistant_message}{suffix}"
     return {
         "thread_id": thread_id,
         "interrupted": interrupted,
         "pending": state.get("approval") if interrupted else None,
         "assistant_message": assistant_message,
         "choices": choices,
+        "recovery": recovery,
         "response": response,
         "state": {
             "action": state.get("action"),
@@ -1475,13 +1670,27 @@ def _public_result(
     }
 
 
-def run_prompt(prompt: str, *, thread_id: str | None = None) -> dict[str, Any]:
+def run_prompt(
+    prompt: str,
+    *,
+    thread_id: str | None = None,
+    parameter_patches: dict[str, Any] | None = None,
+    chat_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     text = (prompt or "").strip()
     if not text:
         raise ValueError("prompt is required")
     resolved_thread = thread_id or str(uuid4())
     config = _config(resolved_thread)
-    state = _GRAPH.invoke(_initial_state(text, resolved_thread), config)
+    state = _GRAPH.invoke(
+        _initial_state(
+            text,
+            resolved_thread,
+            parameter_patches=parameter_patches,
+            chat_history=chat_history,
+        ),
+        config,
+    )
     snapshot = _GRAPH.get_state(config)
     interrupted = "execute" in snapshot.next
     return _public_result(state, resolved_thread, interrupted=interrupted)
@@ -1521,7 +1730,7 @@ def graph_topology() -> dict[str, Any]:
         "edges": GRAPH_EDGES,
         "mermaid": MERMAID,
         "agents": [
-            "understand",
+            "intent",
             "rewrite",
             "retrieve",
             "rerank",
@@ -1530,11 +1739,19 @@ def graph_topology() -> dict[str, Any]:
             "verify",
             "fix",
             "operations",
+            "db_answer",
             "pricing",
             "risk",
             "response",
         ],
-        "lanes": ["chat", "rag", "write"],
+        "lanes": ["chat", "rag", "db", "write"],
+        "intent_router": {
+            "mode": "hybrid",
+            "rules_first": True,
+            "llm_follow_ups": True,
+            "model": "qwen",
+            "uses_chat_history": True,
+        },
         "max_retrieval_retries": load_config().max_retrieval_retries,
         "max_fix_attempts": load_config().max_fix_attempts,
         "mcp_tools": [

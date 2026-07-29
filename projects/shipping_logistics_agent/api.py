@@ -22,6 +22,9 @@ from projects.shipping_logistics_agent.graph import (
 class RunRequest(BaseModel):
     prompt: str = Field(min_length=2, max_length=4000)
     thread_id: str | None = Field(default=None, max_length=128)
+    patches: dict[str, Any] = Field(default_factory=dict)
+    base_prompt: str | None = Field(default=None, max_length=4000)
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ApprovalDecision(BaseModel):
@@ -56,12 +59,13 @@ GRAPH_HTML = """<!doctype html>
   <style>
     body { margin: 0; padding: 28px; font: 15px system-ui; color: #18303a; background: #eef5f4; }
     h1 { margin: 0 0 6px; } p { color: #587079; }
-    .graph { display: grid; gap: 14px; max-width: 1050px; margin-top: 28px; }
+    .graph { display: grid; gap: 14px; max-width: 1100px; margin-top: 28px; }
     .row { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
     .node { min-width: 130px; padding: 14px; text-align: center; border: 2px solid #157a78;
             border-radius: 12px; background: white; box-shadow: 0 5px 16px #17434a16; }
     .agent { background: #e7f5f3; } .human { border-color: #b46b12; background: #fff3df; }
     .write { border-color: #9a3f3f; background: #fbeaea; } .json { background: #e8eefb; border-color: #496bad; }
+    .intent { background: #eef6ff; border-color: #3d6ea8; }
     .arrow { color: #547078; font-size: 22px; } .down { text-align: center; font-size: 24px; }
     .branch { padding: 6px 10px; border-radius: 999px; background: #dbe9e7; font-size: 12px; }
     code { display: block; margin-top: 28px; white-space: pre-wrap; padding: 16px;
@@ -70,18 +74,21 @@ GRAPH_HTML = """<!doctype html>
 </head>
 <body>
   <h1>Shipping logistics multi-agent workflow</h1>
-  <p>Chat, grounded RAG reads, and human-approved transactional writes share one graph.</p>
+  <p>Hybrid intent router (rules + Qwen + history), RAG reads, DB facts, and HITL writes.</p>
   <main class="graph">
     <div class="row"><div class="node">START</div><span class="arrow">→</span>
-      <div class="node agent">Understand intent</div></div>
-    <div class="down">↓ chat · read/RAG · write</div>
+      <div class="node intent">Intent router<br/><small>rules · Qwen · history</small></div></div>
+    <div class="down">↓ chat · rag · db · write</div>
     <div class="row"><div class="node agent">Rewrite</div><span class="arrow">→</span>
       <div class="node agent">Retrieve</div><span class="arrow">→</span>
       <div class="node agent">Rerank</div><span class="arrow">→</span>
       <div class="node agent">Grade</div><span class="arrow">→</span>
       <div class="node agent">Generate</div><span class="arrow">→</span>
       <div class="node agent">Verify / Fix</div></div>
-    <div class="down">↓ or transactional write lane</div>
+    <div class="down">↓ db facts lane &nbsp;|&nbsp; transactional write lane</div>
+    <div class="row"><div class="node agent">Operations</div><span class="arrow">→</span>
+      <div class="node agent">DB answer</div><span class="arrow">→</span>
+      <div class="node json">JSON response</div></div>
     <div class="row"><div class="node agent">Operations</div><span class="arrow">→</span>
       <div class="node agent">Pricing</div><span class="arrow">→</span>
       <div class="node agent">Risk</div><span class="arrow">→</span>
@@ -92,7 +99,7 @@ GRAPH_HTML = """<!doctype html>
   </main>
   <code>GET /api/shipping/graph — topology JSON
 GET /api/shipping/graph/mermaid — Mermaid source
-POST /api/shipping/run — prompt execution
+POST /api/shipping/run — prompt execution (optional history)
 POST /api/shipping/approve — human decision</code>
 </body>
 </html>"""
@@ -139,10 +146,22 @@ def graph_view() -> str:
 @app.post("/api/shipping/run")
 async def run(request: RunRequest) -> dict[str, Any]:
     try:
+        prompt = request.prompt
+        patches = dict(request.patches or {})
+        if request.base_prompt and request.patches:
+            # Structured continuation: keep the original request, apply field patches.
+            prompt = request.base_prompt
+        elif request.base_prompt and request.prompt.strip() != request.base_prompt.strip():
+            prompt = (
+                f"{request.base_prompt}\n"
+                f"Additional information from the user: {request.prompt}"
+            )
         return await run_in_threadpool(
             run_prompt,
-            request.prompt,
+            prompt,
             thread_id=request.thread_id,
+            parameter_patches=patches or None,
+            chat_history=list(request.history or [])[:8] or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

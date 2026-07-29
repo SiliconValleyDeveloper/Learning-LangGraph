@@ -10,23 +10,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from Learning.llm import get_llm
 from projects.shipping_logistics_agent import repository
-
-_PORT_ALIASES = {
-    "mumbai": "INNSA",
-    "nhava sheva": "INNSA",
-    "jnpt": "INNSA",
-    "singapore": "SGSIN",
-    "jebel ali": "AEDXB",
-    "dubai": "AEDXB",
-    "rotterdam": "NLRTM",
-    "new york": "USNYC",
-    "nyc": "USNYC",
-    "miami": "USMIA",
-    "mia": "USMIA",
-    "london": "GBLGP",
-    "lon": "GBLGP",
-    "london gateway": "GBLGP",
-}
+from projects.shipping_logistics_agent.resolvers import (
+    PORT_ALIASES as _PORT_ALIASES,
+    apply_patches,
+    parse_choice_value,
+    resolve_customer,
+    resolve_port,
+)
 _PARAM_KEYS = {
     "customer_code",
     "origin",
@@ -46,6 +36,7 @@ _PARAM_KEYS = {
     "status",
     "limit",
     "reference",
+    "include_amounts",
     "unrecognized_origin",
     "unrecognized_destination",
 }
@@ -73,80 +64,232 @@ _KNOWN_STATUSES = set().union(*repository.ENTITY_STATUSES.values())
 
 
 def _llm_classify_action(prompt: str) -> str:
-    response = get_llm(temperature=0, reasoning=False).invoke(
-        [
-            SystemMessage(
-                content=(
-                    "Classify the user's shipping/logistics request. Return ONLY "
-                    "JSON with an action key. Allowed actions: conversation, "
-                    "reference_data, data_query, get_quotation, search_sailings, "
-                    "track_booking, create_quotation, create_booking. Creating a "
-                    "quotation or booking is a write "
-                    "request. Questions about routes, vessels, schedules, departure "
-                    "or arrival are search_sailings. Shipment status is "
-                    "track_booking. General capability, customer, port, or container "
-                    "questions are reference_data. Counts, summaries, recent records, "
-                    "or lists of customers, ports, vessels, sailings, quotations, "
-                    "bookings, containers, or shipment events are data_query. Asking "
-                    "what a sailing id is, or to show/list sailings without a route, "
-                    "is data_query. Read verbs such as count, list, show, latest, "
-                    "last, recent, and existing must never create data, even when "
-                    "the prompt contains quotation or booking. Only explicit create, "
-                    "prepare, generate, make, or confirm intent is a write. Looking "
-                    "up one SLQ reference is get_quotation. "
-                    "Greetings, thanks, and casual conversation are conversation."
-                )
-            ),
-            HumanMessage(content=prompt),
-        ]
-    )
-    action = _json_object(str(response.content)).get("action")
+    """Legacy single-action classifier kept as a thin wrapper."""
+    intent = _llm_resolve_intent(prompt, history=[])
+    action = intent.get("action")
     return action if action in _ACTIONS else "reference_data"
 
 
-def _has_route_intent(text: str) -> bool:
-    if re.search(
-        r"\b(?:from|between)\s+[A-Za-z].{0,40}\b(?:to|->|→)\b|"
-        r"\b[A-Z]{3,5}\s*(?:to|->|→|-)\s*[A-Z]{3,5}\b|"
-        r"\b(?:mia|miami|lon|london|innsa|singapore|dubai|rotterdam|nyc|"
-        r"new york|usmia|gblgp|sgsin|aedxb|nlrtm|usnyc)\b"
-        r".{0,20}\b(?:to|->|→)\b.{0,20}"
-        r"\b(?:mia|miami|lon|london|innsa|singapore|dubai|rotterdam|nyc|"
-        r"new york|usmia|gblgp|sgsin|aedxb|nlrtm|usnyc|[a-z]{3,5})\b|"
-        r"additional information from the user:.*\b(?:to|->|→)\b",
-        text,
-        re.IGNORECASE | re.DOTALL,
-    ):
-        return True
-    refs = repository.list_reference_data()
-    return len(_port_from_text(text, refs)) >= 2
+def _format_history(history: list[dict[str, str]] | None) -> str:
+    if not history:
+        return "(no prior turns)"
+    lines: list[str] = []
+    for item in history[-6:]:
+        role = str(item.get("role") or "user").strip().lower()
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        label = "User" if role == "user" else "Assistant"
+        lines.append(f"{label}: {content[:500]}")
+    return "\n".join(lines) if lines else "(no prior turns)"
 
 
-def _has_read_intent(text: str) -> bool:
+def _llm_resolve_intent(
+    prompt: str,
+    history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Ask the local LLM to resolve action + lane hints from chat context."""
+    system = (
+        "You are the intent router for a shipping logistics agent. "
+        "Return ONLY valid JSON with keys: action, lane, entity, query_mode, "
+        "status, limit, follow_up, reason. "
+        "action must be one of: conversation, reference_data, data_query, "
+        "get_quotation, search_sailings, track_booking, create_quotation, "
+        "create_booking. "
+        "lane must be one of: chat, rag, db, write. "
+        "Use db for counts, lists, amounts, totals, and exact ref lookups. "
+        "Use rag for explanations, definitions, and soft sailing discovery. "
+        "Use write only for explicit create/prepare/make booking or quotation. "
+        "Use chat for greetings. "
+        "Read follow-ups such as 'more detail', 'those bookings', 'and the amounts' "
+        "must stay data_query on db, never create_booking/create_quotation. "
+        "entity must be customers, ports, vessels, sailings, quotations, bookings, "
+        "containers, shipment_events, all, or null. "
+        "query_mode must be count, list, summary, or null. "
+        "status/limit may be null. follow_up is boolean. reason is a short string. "
+        "Never invent quote_ref or booking_ref values."
+    )
+    human = (
+        f"Recent conversation:\n{_format_history(history)}\n\n"
+        f"Current user message:\n{prompt}"
+    )
+    response = get_llm(temperature=0, reasoning=False).invoke(
+        [SystemMessage(content=system), HumanMessage(content=human)]
+    )
+    return _json_object(str(response.content))
+
+
+def _has_follow_up_intent(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(how many|count|summary|overview|list|show|display|fetch|find|"
-            r"recent|latest|last|newest|oldest|history|all|existing|current)\b",
+            r"\b(more detail|more details|tell me more|elaborate|that one|those|"
+            r"the same|same ones?|and the|also show|what about|continue|"
+            r"matching\b.{0,40}\brecords?)\b",
             text,
             re.IGNORECASE,
         )
     )
 
 
-def _has_create_quotation_intent(text: str) -> bool:
-    return bool(
-        re.search(
-            r"\b(create|prepare|generate|make|request|raise|need|want)\b"
-            r".{0,40}\b(quote|quotation)\b|"
-            r"\b(quote|quotation)\b.{0,20}\b(for|from)\b|"
-            r"\b(quote me|freight cost|rate for|price for)\b",
-            text,
-            re.IGNORECASE | re.DOTALL,
-        )
+def _needs_llm_router(
+    prompt: str,
+    history: list[dict[str, str]] | None,
+    rules_action: str | None,
+) -> bool:
+    """Use the LLM when rules are unsure or the turn depends on chat context."""
+    text = (prompt or "").lower().strip()
+    if rules_action is None:
+        return True
+    if history and _has_follow_up_intent(text):
+        return True
+    if history and len(text) < 48 and rules_action in {
+        "conversation",
+        "reference_data",
+        "create_booking",
+        "create_quotation",
+    }:
+        return True
+    if history and rules_action in {"create_booking", "create_quotation"} and (
+        _has_read_intent(text) or _has_db_fact_intent(text)
+    ):
+        return True
+    return False
+
+
+def _apply_intent_rails(
+    *,
+    prompt: str,
+    rules_action: str | None,
+    llm_intent: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge rules + LLM, with hard rails for reads vs writes and lanes."""
+    text = (prompt or "").lower()
+    llm_action = llm_intent.get("action")
+    action = (
+        llm_action
+        if llm_action in _ACTIONS
+        else (rules_action or "reference_data")
+    )
+
+    # Never let a read/detail follow-up become a write.
+    if action in {"create_booking", "create_quotation"} and (
+        _has_read_intent(text) or _has_db_fact_intent(text) or _has_follow_up_intent(text)
+    ):
+        if not (
+            _has_create_quotation_intent(text)
+            or _has_create_booking_intent(text)
+        ):
+            action = "data_query"
+
+    # Prefer explicit create rules when present.
+    if rules_action == "create_quotation" and _has_create_quotation_intent(text):
+        action = "create_quotation"
+    if rules_action == "create_booking" and _has_create_booking_intent(text):
+        action = "create_booking"
+    if rules_action in {
+        "get_quotation",
+        "track_booking",
+        "search_sailings",
+        "data_query",
+        "conversation",
+    } and not llm_intent.get("follow_up"):
+        # Keep strong deterministic reads unless this is a contextual follow-up.
+        if rules_action and not _has_follow_up_intent(text):
+            action = rules_action
+
+    hints: dict[str, Any] = {}
+    for key in ("entity", "query_mode", "status", "limit"):
+        value = llm_intent.get(key)
+        if value in (None, "", [], {}):
+            continue
+        hints[key] = value
+    if hints.get("entity") == "all" or hints.get("entity") in _ENTITY_TERMS:
+        pass
+    elif "entity" in hints:
+        hints.pop("entity", None)
+    if hints.get("query_mode") not in {None, "count", "list", "summary"}:
+        hints.pop("query_mode", None)
+    if hints.get("status") and str(hints["status"]).lower() not in _KNOWN_STATUSES:
+        hints.pop("status", None)
+    if "limit" in hints:
+        try:
+            hints["limit"] = min(max(int(hints["limit"]), 1), 25)
+        except (TypeError, ValueError):
+            hints.pop("limit", None)
+
+    if action == "data_query" and _has_follow_up_intent(text):
+        hints.setdefault("query_mode", "list")
+
+    lane = resolve_lane(action, prompt, hints)
+    llm_lane = llm_intent.get("lane")
+    if llm_lane in {"chat", "rag", "db", "write"}:
+        # Soft preference from LLM, but never override write safety rails.
+        if action in {"create_quotation", "create_booking"}:
+            lane = "write"
+        elif action == "conversation":
+            lane = "chat"
+        elif llm_lane == "db" and action in {
+            "data_query",
+            "get_quotation",
+            "track_booking",
+            "search_sailings",
+        }:
+            lane = "db"
+        elif llm_lane == "rag" and action in {
+            "data_query",
+            "reference_data",
+            "search_sailings",
+        }:
+            # Keep explanations on RAG; keep amount/list on DB.
+            if not (
+                _has_db_fact_intent(text)
+                or hints.get("include_amounts")
+                or hints.get("query_mode") in {"count", "list", "summary"}
+            ):
+                lane = "rag"
+
+    source = "hybrid" if llm_intent else "rules"
+    if not rules_action and llm_intent:
+        source = "llm"
+    if rules_action and not llm_intent:
+        source = "rules"
+
+    return {
+        "action": action,
+        "lane": lane,
+        "param_hints": hints,
+        "follow_up": bool(llm_intent.get("follow_up") or _has_follow_up_intent(text)),
+        "reason": str(llm_intent.get("reason") or f"Routed by {source}"),
+        "source": source,
+    }
+
+
+def resolve_intent(
+    prompt: str,
+    *,
+    history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Hybrid intent router: deterministic rules first, LLM for ambiguous turns."""
+    rules_action = classify_action_rules(prompt)
+    llm_intent: dict[str, Any] = {}
+    use_llm = _needs_llm_router(prompt, history, rules_action)
+    if use_llm:
+        try:
+            from projects.shipping_logistics_agent.config import load_config
+
+            if load_config().use_llm_answers:
+                llm_intent = _llm_resolve_intent(prompt, history)
+        except Exception:  # noqa: BLE001
+            llm_intent = {}
+    return _apply_intent_rails(
+        prompt=prompt,
+        rules_action=rules_action,
+        llm_intent=llm_intent,
     )
 
 
-def classify_action(prompt: str) -> str:
+def classify_action_rules(prompt: str) -> str | None:
+    """Deterministic action classification, or None when ambiguous."""
     text = prompt.lower()
     if re.fullmatch(
         r"\s*(hi|hello|hey|good\s+(morning|afternoon|evening)|thanks|thank you|bye)[!.?\s]*",
@@ -175,7 +318,13 @@ def classify_action(prompt: str) -> str:
         re.search(rf"\b{re.escape(term)}\b", text)
         for term in _ENTITY_TERMS["quotations"]
     )
+    booking_terms = any(
+        re.search(rf"\b{re.escape(term)}\b", text)
+        for term in _ENTITY_TERMS["bookings"]
+    )
     if quotation_terms and _has_read_intent(text):
+        return "data_query"
+    if booking_terms and _has_read_intent(text):
         return "data_query"
     if _has_create_quotation_intent(text):
         return "create_quotation"
@@ -211,6 +360,10 @@ def classify_action(prompt: str) -> str:
             "explain",
             "define",
             "meaning",
+            "detail",
+            "details",
+            "more detail",
+            "more details",
         )
     ):
         return "data_query"
@@ -225,14 +378,161 @@ def classify_action(prompt: str) -> str:
         for word in ("sailing", "schedule", "voyage", "vessel", "depart")
     ):
         return "data_query"
-    if "book" in text or "booking" in text:
+    if _has_create_booking_intent(text):
         return "create_booking"
+    if booking_terms:
+        return "data_query"
     if any(word in text for word in ("port", "customer", "container type", "help")):
         return "reference_data"
-    try:
-        return _llm_classify_action(prompt)
-    except Exception:  # noqa: BLE001
-        return "reference_data"
+    return None
+
+
+def classify_action(
+    prompt: str,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    return str(resolve_intent(prompt, history=history)["action"])
+
+
+def _has_route_intent(text: str) -> bool:
+    if re.search(
+        r"\b(?:from|between)\s+[A-Za-z].{0,40}\b(?:to|->|→)\b|"
+        r"\b[A-Z]{3,5}\s*(?:to|->|→|-)\s*[A-Z]{3,5}\b|"
+        r"\b(?:mia|miami|lon|london|innsa|singapore|dubai|rotterdam|nyc|"
+        r"new york|usmia|gblgp|sgsin|aedxb|nlrtm|usnyc)\b"
+        r".{0,20}\b(?:to|->|→)\b.{0,20}"
+        r"\b(?:mia|miami|lon|london|innsa|singapore|dubai|rotterdam|nyc|"
+        r"new york|usmia|gblgp|sgsin|aedxb|nlrtm|usnyc|[a-z]{3,5})\b|"
+        r"additional information from the user:.*\b(?:to|->|→)\b",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        return True
+    refs = repository.list_reference_data()
+    return len(_port_from_text(text, refs)) >= 2
+
+
+def _has_read_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(how many|count|summary|overview|list|show|display|fetch|find|"
+            r"recent|latest|last|newest|oldest|history|all|existing|current|"
+            r"detail|details|more detail|more details|tell me more|elaborate)\b|"
+            r"\bmatching\b.{0,40}\brecords?\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_create_booking_intent(text: str) -> bool:
+    """True only for explicit booking writes, not listing existing bookings."""
+    if re.search(
+        r"\b(how many|count|list|show|display|detail|details|track|status|"
+        r"matching|existing|confirmed bookings?|recent bookings?)\b",
+        text,
+        re.IGNORECASE,
+    ) and not re.search(
+        r"\b(create|prepare|make|book this|book the|confirm booking|"
+        r"convert|raise a booking)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(create|prepare|make|raise|confirm)\b.{0,40}\bbooking\b|"
+            r"\bbook\b.{0,20}\b(this|the|quotation|quote|for)\b|"
+            r"\b(book it|book now|convert (?:the )?quote|convert (?:the )?quotation)\b",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
+def _has_create_quotation_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(create|prepare|generate|make|request|raise|need|want)\b"
+            r".{0,40}\b(quote|quotation)\b|"
+            r"\b(quote|quotation)\b.{0,20}\b(for|from)\b|"
+            r"\b(quote me|freight cost|rate for|price for)\b",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
+def _has_db_fact_intent(text: str) -> bool:
+    """True when the user wants authoritative SQL facts/aggregates, not explanation."""
+    return bool(
+        re.search(
+            r"\b(how many|count|list|show|display|fetch|latest|last|recent|"
+            r"newest|oldest|top\s+\d+|amount|amounts|total|totals|sum|"
+            r"calculate|calc|value|values|price|prices)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_explain_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(what is|what's|whats|explain|define|meaning|difference|"
+            r"how does|why|policy|help me understand)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def resolve_lane(
+    action: str,
+    prompt: str,
+    params: dict[str, Any] | None = None,
+) -> str:
+    """Choose chat | rag | db | write based on action and user intent.
+
+    `db` is for authoritative PostgreSQL list/count/amount/ref lookups.
+    `rag` is for explanation, policy, and soft discovery that needs evidence narrative.
+    """
+    params = params or {}
+    if action == "conversation":
+        return "chat"
+    if action in {"create_quotation", "create_booking"}:
+        return "write"
+
+    text = (prompt or "").lower()
+    wants_db = (
+        _has_db_fact_intent(text)
+        or bool(params.get("include_amounts"))
+        or str(params.get("query_mode") or "") in {"count", "list", "summary"}
+    )
+    wants_explain = _has_explain_intent(text)
+
+    if action in {"get_quotation", "track_booking"}:
+        if params.get("quote_ref") or params.get("booking_ref") or wants_db:
+            return "db"
+        return "rag"
+
+    if action == "data_query":
+        if wants_explain and re.search(
+            r"\b(what is|what's|whats|explain|define|meaning)\b", text
+        ):
+            return "rag"
+        if wants_db or params.get("entity"):
+            return "db"
+        return "rag"
+
+    if action == "search_sailings":
+        if wants_db and not wants_explain:
+            return "db"
+        return "rag"
+
+    if action == "reference_data":
+        return "rag"
+    return "rag"
 
 
 def _json_object(text: str) -> dict[str, Any]:
@@ -334,6 +634,27 @@ def _sanitize_params(params: dict[str, Any], refs: dict[str, Any]) -> dict[str, 
             "list",
         }:
             continue
+        if key == "reference":
+            token = str(value).strip().upper()
+            if token in {
+                "AMOUNT",
+                "amounts",
+                "total",
+                "totals",
+                "sum",
+                "value",
+                "values",
+                "price",
+                "prices",
+                "list",
+                "last",
+            }:
+                continue
+            clean[key] = token
+            continue
+        if key == "include_amounts":
+            clean[key] = bool(value)
+            continue
         clean[key] = value
     return clean
 
@@ -381,6 +702,32 @@ def _fallback_extract(prompt: str, action: str) -> dict[str, Any]:
         if customer["customer_code"].upper() in upper:
             params["customer_code"] = customer["customer_code"]
             break
+    if not params.get("customer_code"):
+        # Unique customer name match, e.g. "ACME Industrial"
+        for customer in refs["customers"]:
+            name = str(customer.get("name") or "")
+            if len(name) >= 4 and name.lower() in prompt.lower():
+                resolved = resolve_customer(name)
+                if resolved["status"] == "resolved":
+                    params["customer_code"] = resolved["value"]
+                    break
+        code_match = re.search(
+            r"\bcustomer(?:_code)?\s*[=:#-]?\s*([A-Z0-9-]{3,})\b",
+            prompt,
+            re.IGNORECASE,
+        )
+        if code_match:
+            resolved = resolve_customer(code_match.group(1))
+            if resolved["status"] == "resolved":
+                params["customer_code"] = resolved["value"]
+            elif resolved["status"] in {"unknown", "ambiguous"}:
+                params["customer_code"] = code_match.group(1).upper()
+
+    # Structured choice / patch follow-ups: "customer_code: ACME-IN, origin: USMIA"
+    if re.search(r"\b[a-z_]+\s*:\s*\S+", prompt, re.IGNORECASE):
+        patch_values = parse_choice_value(prompt)
+        if patch_values:
+            params.update(patch_values)
 
     ports = _port_from_text(prompt, refs)
     if ports:
@@ -393,15 +740,14 @@ def _fallback_extract(prompt: str, action: str) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if coded_route:
-        known_ports = _known_port_codes(refs)
         for role, token in zip(
             ("origin", "destination"),
             coded_route.groups(),
         ):
-            code = token.upper()
-            code = _PORT_ALIASES.get(code.lower(), code)
-            if code in known_ports:
-                params[role] = code
+            resolved = resolve_port(token)
+            if resolved["status"] == "resolved":
+                params[role] = resolved["value"]
+                params.pop(f"unrecognized_{role}", None)
             else:
                 params.pop(role, None)
                 params[f"unrecognized_{role}"] = token.upper()
@@ -445,16 +791,26 @@ def _fallback_extract(prompt: str, action: str) -> dict[str, Any]:
         lower_prompt = prompt.lower()
         wants_records = bool(
             re.search(
-                r"\b(list|show|display|latest|last|recent|newest|oldest|fetch)\b",
+                r"\b(list|show|display|latest|last|recent|newest|oldest|fetch|"
+                r"amount|amounts|total|totals|sum|calculate|calc|"
+                r"detail|details|more detail|more details|tell me more|elaborate)\b",
+                lower_prompt,
+            )
+        )
+        wants_amounts = bool(
+            re.search(
+                r"\b(amount|amounts|total(?:s)?(?:\s+usd)?|sum|value|values|"
+                r"price|prices)\b",
                 lower_prompt,
             )
         )
         params["query_mode"] = (
             "summary"
             if any(word in lower_prompt for word in ("summary", "by status"))
+            and not wants_amounts
             else (
                 "list"
-                if wants_records
+                if wants_records or wants_amounts
                 else (
                     "count"
                     if any(word in lower_prompt for word in ("how many", "count"))
@@ -477,15 +833,26 @@ def _fallback_extract(prompt: str, action: str) -> dict[str, Any]:
                 r"\bsailing\b", prompt, re.IGNORECASE
             ):
                 params["entity"] = "sailings"
+            # Amount/total prompts without an explicit entity imply quotations.
+            if not params.get("entity") and wants_amounts:
+                params["entity"] = "quotations"
         for status in _KNOWN_STATUSES:
             if re.search(rf"\b{re.escape(status)}\b", prompt, re.IGNORECASE):
                 params["status"] = status
                 break
         requested_limit = re.search(
-            r"\b(?:top|latest|recent|first|limit)\s+(\d+)\b",
+            r"\b(?:top|latest|recent|first|last|limit|newest)\s+(\d+)\b",
             prompt,
             re.IGNORECASE,
         )
+        if not requested_limit:
+            requested_limit = re.search(
+                r"\b(\d+)\s+(?:latest|recent|last|newest)?\s*"
+                r"(?:quotation|quotations|quote|quotes|booking|bookings|"
+                r"sailing|sailings|amount|amounts|total|totals)\b",
+                prompt,
+                re.IGNORECASE,
+            )
         if requested_limit:
             params["limit"] = min(max(int(requested_limit.group(1)), 1), 25)
         elif re.search(
@@ -495,6 +862,9 @@ def _fallback_extract(prompt: str, action: str) -> dict[str, Any]:
         ):
             params["limit"] = 1
         params.setdefault("limit", 10)
+        if wants_amounts:
+            params["query_mode"] = "list"
+            params["include_amounts"] = True
     return _sanitize_params(params, refs)
 
 
@@ -527,9 +897,16 @@ def _is_complete(action: str, params: dict[str, Any]) -> bool:
     return all(params.get(key) not in (None, "") for key in required)
 
 
-def extract_parameters(prompt: str, action: str) -> dict[str, Any]:
+def extract_parameters(
+    prompt: str,
+    action: str,
+    *,
+    patches: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     refs = repository.list_reference_data()
     fallback = _fallback_extract(prompt, action)
+    if patches:
+        fallback = apply_patches(fallback, patches)
     # Most UI/example prompts contain explicit codes and quantities. Avoid an
     # expensive LLM round-trip when deterministic parsing already has enough.
     if _is_complete(action, fallback):

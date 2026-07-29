@@ -113,15 +113,27 @@
                 </div>
               }
               @if (message.choices?.length) {
-                <div class="message-choices" aria-label="Valid choices">
+                <div
+                  class="message-choices"
+                  [class.inactive]="message.choicesActive === false"
+                  aria-label="Valid choices"
+                >
                   @for (choice of message.choices; track choice.kind + choice.value) {
                     <button
                       type="button"
-                      [disabled]="typing || loading || approvalLoading"
-                      (click)="selectChoice(choice)"
+                      [disabled]="
+                        message.choicesActive === false ||
+                        typing ||
+                        loading ||
+                        approvalLoading
+                      "
+                      (click)="selectChoice(choice, message.id)"
                     >
                       <small>{{ choice.kind }}</small>
                       <span>{{ choice.label }}</span>
+                      @if (choice.reason) {
+                        <em>{{ choice.reason }}</em>
+                      }
                     </button>
                   }
                 </div>
@@ -202,6 +214,96 @@
         }
       </div>
 
+      @if (activeRecovery?.active) {
+        <aside class="recovery-panel" aria-label="Completing request">
+          <header>
+            <div>
+              <p class="eyebrow">Completing request</p>
+              <h3>{{ formatAction(activeRecovery!.action) }}</h3>
+            </div>
+            <button type="button" class="ghost" (click)="clearRecovery('Cleared incomplete request.')">
+              New request
+            </button>
+          </header>
+
+          <div class="recovery-body">
+            @if (filledEntries.length) {
+              <div class="filled-fields">
+                <p>Retained so far</p>
+                <ul>
+                  @for (entry of filledEntries; track entry.key) {
+                    <li>
+                      <span>{{ entry.key }}</span>
+                      <strong>{{ entry.value }}</strong>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (remainingFields.length) {
+              <div class="remaining-fields">
+                <p>Still needed</p>
+                <div class="field-tags">
+                  @for (field of remainingFields; track field) {
+                    <span>{{ field }}</span>
+                  }
+                </div>
+              </div>
+            }
+
+            @for (group of recoveryGroups; track group.field + group.title) {
+              <div class="recovery-group">
+                <h4>{{ group.title }}</h4>
+                <div class="message-choices">
+                  @for (choice of group.choices; track choice.kind + choice.value) {
+                    <button
+                      type="button"
+                      [disabled]="typing || loading || approvalLoading"
+                      (click)="selectChoice(choice)"
+                    >
+                      <small>{{ choice.kind }}</small>
+                      <span>{{ choice.label }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
+            <div class="manual-entry">
+              <p>Or enter a field manually</p>
+              <div class="manual-row">
+                <select name="manualField" [(ngModel)]="manualField">
+                  @for (field of manualFieldOptions; track field) {
+                    <option [value]="field">{{ field }}</option>
+                  }
+                </select>
+                <input
+                  name="manualValue"
+                  [(ngModel)]="manualValue"
+                  placeholder="Value"
+                  (keydown.enter)="$event.preventDefault(); applyManualField()"
+                />
+                <button
+                  type="button"
+                  class="primary"
+                  [disabled]="
+                    !manualField ||
+                    !manualValue.trim() ||
+                    loading ||
+                    approvalLoading ||
+                    typing
+                  "
+                  (click)="applyManualField()"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      }
+
       @if (!result?.interrupted) {
         <div class="examples" aria-label="Suggested questions">
           @for (example of examples; track example.label) {
@@ -220,7 +322,11 @@
           [(ngModel)]="prompt"
           rows="2"
           maxlength="4000"
-          placeholder="Ask about sailings, quotations, bookings, counts…"
+          [placeholder]="
+            activeRecovery?.active
+              ? 'Type a missing value, or start a new request…'
+              : 'Ask about sailings, quotations, bookings, counts…'
+          "
           (keydown)="sendOnEnter($event)"
         ></textarea>
         <div class="form-actions">
@@ -236,7 +342,9 @@
                 ? "Running agents…"
                 : result?.interrupted
                   ? "Send decision"
-                  : "Send message"
+                  : activeRecovery?.active
+                    ? "Continue"
+                    : "Send message"
             }}
           </button>
           <span>Enter to send · Shift+Enter for a new line</span>
@@ -452,8 +560,8 @@
 
           <div class="topology-canvas">
             <svg
-              viewBox="0 0 1200 1160"
-              [style.width.px]="1200 * graphZoom"
+              viewBox="0 0 1360 1160"
+              [style.width.px]="1360 * graphZoom"
               [style.height.px]="1160 * graphZoom"
               role="img"
               aria-label="Directed LangGraph execution topology"
@@ -558,6 +666,36 @@
           </div>
 
           @if (flowGuideOpen) {
+          <article class="flow-story intent-story">
+            <header>
+              <span>00</span>
+              <div>
+                <strong>Intent router</strong>
+                <small>Rules first, Qwen + chat history for follow-ups</small>
+              </div>
+            </header>
+            <div class="story-path">
+              <div class="story-node" [attr.data-state]="nodeState('intent')">
+                <b>Rules</b>
+                <span>Clear counts, lists, writes, and refs</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('intent')">
+                <b>Qwen</b>
+                <span>Ambiguous turns and “more detail” follow-ups</span>
+              </div>
+              <i>→</i>
+              <div class="story-node decision-node" [attr.data-state]="nodeState('intent')">
+                <b>Lane</b>
+                <span>chat · rag · db · write</span>
+              </div>
+            </div>
+            <div class="story-decisions">
+              <span><b>Hard rails:</b> reads never become writes; writes still need HITL</span>
+              <span><b>History:</b> last chat turns help progress stay on-topic</span>
+            </div>
+          </article>
+
           <article class="flow-story chat-story">
             <header>
               <span>01</span>
@@ -567,8 +705,8 @@
               </div>
             </header>
             <div class="story-path">
-              <div class="story-node" [attr.data-state]="nodeState('understand')">
-                <b>Understand</b>
+              <div class="story-node" [attr.data-state]="nodeState('intent')">
+                <b>Intent</b>
                 <span>Detect a conversational message</span>
               </div>
               <i>→</i>
@@ -586,7 +724,7 @@
               <span>02</span>
               <div>
                 <strong>Read and RAG flow</strong>
-                <small>Counts, lists, tracking, quotations, sailings, and policy</small>
+                <small>Explanations, sailing discovery, and policy questions</small>
               </div>
             </header>
             <div class="story-path long">
@@ -626,15 +764,51 @@
               </div>
             </div>
             <div class="story-decisions">
-              <span><b>Grade fails:</b> rewrite and retrieve once more ↺</span>
+              <span><b>Grade fails on structured reads:</b> fall back to DB operations →</span>
+              <span><b>Grade fails otherwise:</b> rewrite and retrieve once more ↺</span>
               <span><b>Verify fails:</b> fix the answer and verify once more ↺</span>
               <span><b>No evidence:</b> refuse instead of inventing facts</span>
             </div>
           </article>
 
-          <article class="flow-story write-story">
+          <article class="flow-story db-story">
             <header>
               <span>03</span>
+              <div>
+                <strong>DB facts flow</strong>
+                <small>Amounts, counts, last-N lists, and exact ref lookups</small>
+              </div>
+            </header>
+            <div class="story-path">
+              <div class="story-node" [attr.data-state]="nodeState('intent')">
+                <b>Intent</b>
+                <span>Route compute/list intents to the DB lane</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('operations')">
+                <b>Operations</b>
+                <span>Query PostgreSQL through safe repository helpers</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('db_answer')">
+                <b>DB answer</b>
+                <span>Compose totals and lists from SQL rows</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('response')">
+                <b>Respond</b>
+                <span>Return the authoritative result</span>
+              </div>
+            </div>
+            <div class="story-decisions">
+              <span><b>Missing fields:</b> recovery choices, no write</span>
+              <span><b>Skips RAG generate/verify:</b> SQL rows are already authoritative</span>
+            </div>
+          </article>
+
+          <article class="flow-story write-story">
+            <header>
+              <span>04</span>
               <div>
                 <strong>Transactional write flow</strong>
                 <small>Creating a quotation or booking</small>
