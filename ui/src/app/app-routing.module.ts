@@ -1,31 +1,42 @@
-import { NgModule } from '@angular/core';
-import { RouterModule, Routes } from '@angular/router';
+import { NgModule } from "@angular/core";
+import { RouterModule, Routes } from "@angular/router";
 
-import { LayoutComponent } from './layouts/layout.component';
+import { LayoutComponent } from "./layouts/layout.component";
 
 const routes: Routes = [
   {
-    path: '',
+    path: "",
     component: LayoutComponent,
     children: [
       {
-        path: 'chat',
+        path: "chat",
         loadChildren: () =>
-          import('./pages/apps/apps.module').then(module => module.AppsModule)
+          import("./pages/apps/apps.module").then(
+            (module) => module.AppsModule,
+          ),
       },
       {
-        path: 'finance',
+        path: "finance",
         loadChildren: () =>
-          import('./pages/apps/finance/finance.module').then(module => module.FinanceModule)
+          import("./pages/apps/finance/finance.module").then(
+            (module) => module.FinanceModule,
+          ),
       },
-      { path: '', pathMatch: 'full', redirectTo: 'chat' }
-    ]
+      {
+        path: "shipping",
+        loadChildren: () =>
+          import("./pages/apps/shipping/shipping.module").then(
+            (module) => module.ShippingModule,
+          ),
+      },
+      { path: "", pathMatch: "full", redirectTo: "chat" },
+    ],
   },
-  { path: '**', redirectTo: 'chat' }
+  { path: "**", redirectTo: "chat" },
 ];
 
 @NgModule({
   imports: [RouterModule.forRoot(routes)],
-  exports: [RouterModule]
+  exports: [RouterModule],
 })
-export class AppRoutingModule { }
+export class AppRoutingModule {}

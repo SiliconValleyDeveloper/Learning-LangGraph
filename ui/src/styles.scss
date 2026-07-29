@@ -55,6 +55,17 @@ app-vertical,
   overflow: hidden !important;
 }
 
+#layout-wrapper .lab-container > app-shipping-console {
+  display: block !important;
+  box-sizing: border-box !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 app-chat .agent-shell,
 app-doc-rag .doc-shell,
 app-person-finder .finder-shell,

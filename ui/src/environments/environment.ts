@@ -4,18 +4,19 @@
 
 export const environment = {
   production: false,
-  apiUrl: 'http://localhost:8000',
-  defaultauth: 'fakebackend',
+  apiUrl: "http://localhost:8000",
+  shippingApiUrl: "http://localhost:8010",
+  defaultauth: "fakebackend",
   firebaseConfig: {
-    apiKey: '',
-    authDomain: '',
-    databaseURL: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: '',
-    measurementId: ''
-  }
+    apiKey: "",
+    authDomain: "",
+    databaseURL: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: "",
+    measurementId: "",
+  },
 };
 
 /*

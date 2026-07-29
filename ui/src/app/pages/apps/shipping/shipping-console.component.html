@@ -1,0 +1,742 @@
+<main class="shipping-shell">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">PostgreSQL · MCP · LangGraph · HITL</p>
+      <h1>Shipping operations</h1>
+      <p class="lede">
+        Prompt-driven sailing search, quotations, bookings, and tracking.
+        Business writes pause for human approval.
+      </p>
+    </div>
+    <div class="health" [class.offline]="health?.status !== 'ok'">
+      <span class="dot"></span>
+      <div>
+        <strong>{{ health?.status || "checking" }}</strong>
+        <small>
+          PostgreSQL {{ health?.postgres_ok ? "connected" : "unavailable" }}
+        </small>
+      </div>
+    </div>
+  </header>
+
+  <section class="metrics" aria-label="Shipping service status">
+    <article>
+      <span>Customers</span>
+      <strong>{{ health?.customers ?? "—" }}</strong>
+    </article>
+    <article>
+      <span>Ports</span>
+      <strong>{{ health?.ports ?? "—" }}</strong>
+    </article>
+    <article>
+      <span>MCP tools</span>
+      <strong>{{ graph?.mcp_tools?.length ?? "—" }}</strong>
+    </article>
+    <article>
+      <span>Write policy</span>
+      <strong>Human approval</strong>
+    </article>
+  </section>
+
+  <button
+    type="button"
+    class="chat-fab"
+    [class.open]="chatOpen"
+    [attr.aria-expanded]="chatOpen"
+    aria-label="Toggle shipping assistant"
+    (click)="toggleChat()"
+  >
+    @if (chatOpen) {
+      <span class="fab-icon">×</span>
+    } @else {
+      <span class="fab-icon">AI</span>
+      <span class="fab-pulse"></span>
+    }
+  </button>
+  @if (chatOpen) {
+    <button
+      type="button"
+      class="chat-backdrop"
+      aria-label="Close shipping assistant"
+      (click)="closeChat()"
+    ></button>
+  }
+
+  <section class="workbench">
+    <div
+      class="composer chat-drawer"
+      [class.open]="chatOpen"
+      [attr.aria-hidden]="!chatOpen"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shipping-chat-title"
+    >
+      <div class="chat-drawer__header">
+        <div class="chat-drawer__identity">
+          <span class="chat-drawer__avatar">AI</span>
+          <div>
+            <h2 id="shipping-chat-title">Shipping Copilot</h2>
+            <p>{{ backendHint }}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="chat-drawer__close"
+          aria-label="Close chat"
+          (click)="closeChat()"
+        >
+          ×
+        </button>
+      </div>
+
+      <div #chatWindow class="chat-window" aria-live="polite">
+        @for (message of messages; track message.id) {
+          <article class="chat-message" [attr.data-role]="message.role">
+            <div class="avatar">
+              @if (message.role === "assistant") {
+                AI
+              } @else if (message.role === "user") {
+                You
+              } @else {
+                ✓
+              }
+            </div>
+            <div class="bubble">
+              <p [class.typing-cursor]="message.typing">
+                {{ message.content }}
+              </p>
+              @if (message.chips?.length) {
+                <div class="message-chips" aria-label="Agents used">
+                  @for (chip of message.chips; track chip) {
+                    <span>{{ chip }}</span>
+                  }
+                </div>
+              }
+              @if (message.choices?.length) {
+                <div class="message-choices" aria-label="Valid choices">
+                  @for (choice of message.choices; track choice.kind + choice.value) {
+                    <button
+                      type="button"
+                      [disabled]="typing || loading || approvalLoading"
+                      (click)="selectChoice(choice)"
+                    >
+                      <small>{{ choice.kind }}</small>
+                      <span>{{ choice.label }}</span>
+                    </button>
+                  }
+                </div>
+              }
+              <small>{{ message.meta }} · {{ message.time }}</small>
+              @if (
+                result?.interrupted &&
+                result?.pending &&
+                message.role === "assistant" &&
+                message.id === messages[messages.length - 1].id
+              ) {
+                <div class="inline-approval">
+                  <div class="risk-line">
+                    <span
+                      class="risk"
+                      [class.high]="
+                        result!.state.risk_review.risk_level === 'high'
+                      "
+                    >
+                      {{ result!.state.risk_review.risk_level || "unknown" }} risk
+                    </span>
+                    <span class="mono">{{ result!.pending!.approval_id }}</span>
+                  </div>
+                  @if (result!.state.risk_review.warnings?.length) {
+                    <ul class="warnings">
+                      @for (
+                        warning of result!.state.risk_review.warnings;
+                        track warning
+                      ) {
+                        <li>{{ warning }}</li>
+                      }
+                    </ul>
+                  }
+                  <label>
+                    Reviewer
+                    <input name="inlineReviewer" [(ngModel)]="reviewer" />
+                  </label>
+                  <label>
+                    Decision note
+                    <input
+                      name="inlineReviewerNote"
+                      [(ngModel)]="reviewerNote"
+                      placeholder="Optional reason"
+                    />
+                  </label>
+                  <div class="approval-actions">
+                    <button
+                      type="button"
+                      class="approve"
+                      [disabled]="approvalLoading || typing || !reviewer.trim()"
+                      (click)="decide(true)"
+                    >
+                      Approve & execute
+                    </button>
+                    <button
+                      type="button"
+                      class="reject"
+                      [disabled]="approvalLoading || typing || !reviewer.trim()"
+                      (click)="decide(false)"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                  <small>You can also type “approve” or “reject” below.</small>
+                </div>
+              }
+            </div>
+          </article>
+        }
+        @if (loading) {
+          <article class="chat-message" data-role="assistant">
+            <div class="avatar">AI</div>
+            <div class="bubble thinking">
+              <i></i><i></i><i></i>
+              <small>Agents are working…</small>
+            </div>
+          </article>
+        }
+      </div>
+
+      @if (!result?.interrupted) {
+        <div class="examples" aria-label="Suggested questions">
+          @for (example of examples; track example.label) {
+            <button type="button" (click)="useExample(example.prompt)">
+              {{ example.label }}
+            </button>
+          }
+        </div>
+      }
+
+      <form class="chat-composer" (submit)="$event.preventDefault(); run()">
+        <textarea
+          #messageInput
+          id="shipping-prompt"
+          name="shippingPrompt"
+          [(ngModel)]="prompt"
+          rows="2"
+          maxlength="4000"
+          placeholder="Ask about sailings, quotations, bookings, counts…"
+          (keydown)="sendOnEnter($event)"
+        ></textarea>
+        <div class="form-actions">
+          <button
+            type="submit"
+            class="primary"
+            [disabled]="
+              loading || approvalLoading || typing || !prompt.trim()
+            "
+          >
+            {{
+              loading
+                ? "Running agents…"
+                : result?.interrupted
+                  ? "Send decision"
+                  : "Send message"
+            }}
+          </button>
+          <span>Enter to send · Shift+Enter for a new line</span>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  @if (error) {
+    <p class="error" role="alert">{{ error }}</p>
+  }
+
+  <section class="result-panel">
+    <nav class="view-tabs" aria-label="Result views">
+      <button
+        type="button"
+        [class.active]="view === 'summary'"
+        [disabled]="!result"
+        (click)="setView('summary')"
+      >
+        Result
+      </button>
+      <button
+        type="button"
+        [class.active]="view === 'graph'"
+        (click)="setView('graph')"
+      >
+        Graph
+      </button>
+      <button
+        type="button"
+        [class.active]="view === 'json'"
+        [disabled]="!result"
+        (click)="setView('json')"
+      >
+        JSON
+      </button>
+    </nav>
+
+    @if (view === "summary") {
+      @if (!result) {
+        <div class="empty">
+          <strong>No workflow run yet</strong>
+          <span>Choose an example or enter a prompt above.</span>
+        </div>
+      } @else {
+        <div class="summary-layout">
+          <article class="response-card">
+            <p class="step">Structured response</p>
+            <div class="response-head">
+              <h2>{{ result.response?.action || result.state.action }}</h2>
+              <span [class.success]="result.response?.status === 'executed'">
+                {{ result.response?.status || result.state.status }}
+              </span>
+            </div>
+            <p class="assistant-answer">{{ result.assistant_message }}</p>
+            @if (result.state.lane === "rag") {
+              <div class="evidence-status">
+                <span>Lane: {{ result.state.lane }}</span>
+                <span>Grade: {{ result.state.evidence_grade }}</span>
+                <span>Score: {{ result.state.evidence_score || 0 }}</span>
+                <span>
+                  {{ result.state.verified ? "Verified" : "Not verified" }}
+                </span>
+              </div>
+              @if (result.evidence?.length) {
+                <div class="evidence-list">
+                  @for (item of result.evidence; track item.citation) {
+                    <article>
+                      <strong>[{{ item.citation }}] {{ item.title }}</strong>
+                      <small>
+                        {{ item.source_type }} · score {{ item.score || 0 }}
+                      </small>
+                    </article>
+                  }
+                </div>
+              }
+            }
+            @if (
+              result.response?.errors?.length || result.state.errors.length
+            ) {
+              <ul class="errors">
+                @for (
+                  item of result.response?.errors || result.state.errors;
+                  track item
+                ) {
+                  <li>{{ item }}</li>
+                }
+              </ul>
+            }
+            <pre>{{
+              result.response?.data || result.state.proposal | json
+            }}</pre>
+          </article>
+
+          <article class="trace-card">
+            <p class="step">Agent trace</p>
+            <ol>
+              @for (step of result.trace; track $index) {
+                <li>
+                  <span>{{ $index + 1 }}</span>
+                  <div>
+                    <strong>{{ step.agent }}</strong>
+                    <p>{{ step.summary }}</p>
+                  </div>
+                </li>
+              }
+            </ol>
+          </article>
+        </div>
+      }
+    }
+
+    @if (view === "json") {
+      <pre class="json-output">{{ prettyJson }}</pre>
+    }
+
+    @if (view === "graph") {
+      <div class="workflow-dashboard">
+        <header class="execution-overview">
+          <div class="execution-overview__main">
+            <span
+              class="live-indicator"
+              [class.waiting]="result?.interrupted"
+              [class.error]="result?.state?.errors?.length"
+            ></span>
+            <div>
+              <p class="step">Live execution</p>
+              <h2>{{ executionLabel }}</h2>
+              <small>Current step: {{ currentStepLabel }}</small>
+            </div>
+          </div>
+          <div class="execution-overview__meta">
+            <span>{{ result?.state?.lane || "no lane" }}</span>
+            <span>{{ result?.state?.evidence_grade || "no evidence" }}</span>
+            <span>{{ memoryLabel }}</span>
+            <button type="button" (click)="openChat()">Ask Shipping AI</button>
+          </div>
+        </header>
+
+        <div class="runtime-metrics">
+          <article>
+            <strong>{{ toolCallCount }}</strong>
+            <span>Tools</span>
+            <small>calls</small>
+          </article>
+          <article>
+            <strong>{{ loopCount }}</strong>
+            <span>Loops</span>
+            <small>cycles</small>
+          </article>
+          <article>
+            <strong>{{ agentRunCount }}</strong>
+            <span>Agent</span>
+            <small>runs</small>
+          </article>
+          <article>
+            <strong>{{ stateMessageCount }}</strong>
+            <span>State</span>
+            <small>messages</small>
+          </article>
+        </div>
+
+        <div class="graph-summary">
+          <div><strong>{{ graph?.nodes?.length || 0 }}</strong><span>Nodes</span></div>
+          <div><strong>{{ graph?.edges?.length || 0 }}</strong><span>Edges</span></div>
+          <div><strong>{{ conditionalNodeCount }}</strong><span>Conditional</span></div>
+          <div><strong>{{ graph?.mcp_tools?.length || 0 }}</strong><span>Tools</span></div>
+        </div>
+
+        <div class="graph-legend">
+          <span><i class="idle"></i> Not visited</span>
+          <span><i class="active"></i> Visited</span>
+          <span><i class="waiting"></i> Waiting</span>
+          <span><i class="blocked"></i> Blocked</span>
+        </div>
+
+        <section class="langgraph-topology">
+          <div class="topology-head">
+            <div>
+              <p class="step">Actual LangGraph topology</p>
+              <h2>Nodes, conditional edges, loops, tools, and HITL</h2>
+            </div>
+            <div class="shape-legend">
+              <span><i class="agent-shape"></i> Agent</span>
+              <span><i class="tool-shape"></i> Tool</span>
+              <span><i class="condition-shape"></i> Conditional</span>
+              <span><i class="hitl-shape"></i> HITL interrupt</span>
+            </div>
+            <div class="graph-controls" aria-label="Graph zoom controls">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                [disabled]="graphZoom <= 0.6"
+                (click)="zoomGraph(-0.1)"
+              >
+                −
+              </button>
+              <span>{{ graphZoom * 100 | number: "1.0-0" }}%</span>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                [disabled]="graphZoom >= 1.4"
+                (click)="zoomGraph(0.1)"
+              >
+                +
+              </button>
+              <button type="button" class="fit" (click)="resetGraphZoom()">
+                Fit
+              </button>
+            </div>
+          </div>
+
+          <div class="topology-canvas">
+            <svg
+              viewBox="0 0 1200 1160"
+              [style.width.px]="1200 * graphZoom"
+              [style.height.px]="1160 * graphZoom"
+              role="img"
+              aria-label="Directed LangGraph execution topology"
+            >
+              <defs>
+                <marker
+                  id="arrow-idle"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#aab8ba"></path>
+                </marker>
+                <marker
+                  id="arrow-active"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#087f83"></path>
+                </marker>
+              </defs>
+
+              @for (edge of visualGraphEdges; track edge.id) {
+                <g
+                  class="topology-edge"
+                  [class.active]="visualEdgeActive(edge)"
+                  [class.loop]="edge.condition === 'retry' || edge.condition === 'fix'"
+                >
+                  <path
+                    [attr.d]="edge.path"
+                    fill="none"
+                    [attr.marker-end]="
+                      visualEdgeActive(edge)
+                        ? 'url(#arrow-active)'
+                        : 'url(#arrow-idle)'
+                    "
+                  ></path>
+                  @if (edge.label) {
+                    <text [attr.x]="edge.labelX" [attr.y]="edge.labelY">
+                      {{ edge.label }}
+                    </text>
+                  }
+                </g>
+              }
+
+              @for (node of visualGraphNodes; track node.id) {
+                <g
+                  class="topology-node"
+                  [attr.data-shape]="node.shape"
+                  [attr.data-state]="visualNodeState(node)"
+                >
+                  @if (
+                    node.shape === "conditional" || node.shape === "hitl"
+                  ) {
+                    <polygon [attr.points]="visualNodePoints(node)"></polygon>
+                  } @else {
+                    <rect
+                      [attr.x]="node.x"
+                      [attr.y]="node.y"
+                      [attr.width]="node.width"
+                      [attr.height]="node.height"
+                      [attr.rx]="node.shape === 'terminal' ? node.height / 2 : 18"
+                    ></rect>
+                  }
+                  <text
+                    class="node-title"
+                    [attr.x]="node.x + node.width / 2"
+                    [attr.y]="node.y + node.height / 2 - 6"
+                  >
+                    {{ node.label }}
+                  </text>
+                  <text
+                    class="node-detail"
+                    [attr.x]="node.x + node.width / 2"
+                    [attr.y]="node.y + node.height / 2 + 14"
+                  >
+                    {{ node.detail }}
+                  </text>
+                </g>
+              }
+            </svg>
+          </div>
+        </section>
+
+        <section class="flow-guide">
+          <div class="flow-guide__header">
+            <div>
+              <p class="step">Flow guide</p>
+              <h2>What happens for each request?</h2>
+            </div>
+            <div>
+              <span>Live node colors match the graph above</span>
+              <button type="button" (click)="toggleFlowGuide()">
+                {{ flowGuideOpen ? "Hide guide" : "Show step-by-step guide" }}
+              </button>
+            </div>
+          </div>
+
+          @if (flowGuideOpen) {
+          <article class="flow-story chat-story">
+            <header>
+              <span>01</span>
+              <div>
+                <strong>Conversation flow</strong>
+                <small>Greetings, help, and normal conversation</small>
+              </div>
+            </header>
+            <div class="story-path">
+              <div class="story-node" [attr.data-state]="nodeState('understand')">
+                <b>Understand</b>
+                <span>Detect a conversational message</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('response')">
+                <b>Qwen reply</b>
+                <span>Answer naturally without database tools</span>
+              </div>
+              <i>→</i>
+              <div class="story-node terminal">END</div>
+            </div>
+          </article>
+
+          <article class="flow-story rag-story">
+            <header>
+              <span>02</span>
+              <div>
+                <strong>Read and RAG flow</strong>
+                <small>Counts, lists, tracking, quotations, sailings, and policy</small>
+              </div>
+            </header>
+            <div class="story-path long">
+              <div class="story-node" [attr.data-state]="nodeState('rewrite')">
+                <b>Rewrite</b>
+                <span>Clarify the query while preserving IDs</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('retrieve')">
+                <b>Retrieve</b>
+                <span>Read PostgreSQL and policy evidence</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('rerank')">
+                <b>Rerank</b>
+                <span>Keep the most relevant top-k evidence</span>
+              </div>
+              <i>→</i>
+              <div class="story-node decision-node" [attr.data-state]="nodeState('grade')">
+                <b>Grade</b>
+                <span>Pass, weak, or fail</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('generate')">
+                <b>Generate</b>
+                <span>Create a grounded answer with [S#] citations</span>
+              </div>
+              <i>→</i>
+              <div class="story-node decision-node" [attr.data-state]="nodeState('verify')">
+                <b>Verify</b>
+                <span>Check citations and shipping references</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('response')">
+                <b>Respond</b>
+                <span>Return answer, evidence, JSON, and trace</span>
+              </div>
+            </div>
+            <div class="story-decisions">
+              <span><b>Grade fails:</b> rewrite and retrieve once more ↺</span>
+              <span><b>Verify fails:</b> fix the answer and verify once more ↺</span>
+              <span><b>No evidence:</b> refuse instead of inventing facts</span>
+            </div>
+          </article>
+
+          <article class="flow-story write-story">
+            <header>
+              <span>03</span>
+              <div>
+                <strong>Transactional write flow</strong>
+                <small>Creating a quotation or booking</small>
+              </div>
+            </header>
+            <div class="story-path long">
+              <div class="story-node" [attr.data-state]="nodeState('operations')">
+                <b>Operations</b>
+                <span>Validate customer, route, IDs, and cargo</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('pricing')">
+                <b>Pricing</b>
+                <span>Prepare a proposal without writing</span>
+              </div>
+              <i>→</i>
+              <div class="story-node decision-node" [attr.data-state]="nodeState('risk')">
+                <b>Risk</b>
+                <span>Check capacity, credit, validity, and DG</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('approval_request')">
+                <b>Checkpoint</b>
+                <span>Persist proposal and pause the graph</span>
+              </div>
+              <i>→</i>
+              <div class="story-node human-node" [attr.data-state]="nodeState('human')">
+                <b>Human</b>
+                <span>Explicitly approve or reject inside chat</span>
+              </div>
+              <i>→</i>
+              <div class="story-node write-node" [attr.data-state]="nodeState('execute')">
+                <b>Execute</b>
+                <span>Revalidate approval, write, and audit</span>
+              </div>
+              <i>→</i>
+              <div class="story-node" [attr.data-state]="nodeState('response')">
+                <b>Respond</b>
+                <span>Return created reference or rejection</span>
+              </div>
+            </div>
+            <div class="story-decisions">
+              <span><b>Hard risk block:</b> stop immediately; no approval or write</span>
+              <span><b>Rejected:</b> resume the graph but perform no database write</span>
+              <span><b>Approved:</b> only then may PostgreSQL be mutated</span>
+            </div>
+          </article>
+          }
+        </section>
+
+        <section class="run-inspector">
+          <div class="run-path">
+            <p class="step">Run path</p>
+            @if (runPath.length) {
+              <div>
+                @for (node of runPath; track $index) {
+                  <span>{{ node }}</span>
+                  @if (!$last) {
+                    <b>→</b>
+                  }
+                }
+              </div>
+            } @else {
+              <p class="waiting-copy">Waiting for a prompt…</p>
+            }
+          </div>
+
+          <div class="tool-strip">
+            <p class="step">Bound PostgreSQL MCP tools</p>
+            <div>
+              @for (tool of graph?.mcp_tools || []; track tool) {
+                <code>{{ tool }}</code>
+              }
+            </div>
+          </div>
+
+          <div class="run-facts">
+            <div><span>Last type</span><strong>{{ lastRunType }}</strong></div>
+            <div><span>Lane</span><strong>{{ result?.state?.lane || "—" }}</strong></div>
+            <div>
+              <span>Evidence</span>
+              <strong>{{ result?.state?.evidence_grade || "n/a" }}</strong>
+            </div>
+            <div>
+              <span>Verified</span>
+              <strong>{{ result?.state?.verified ? "yes" : "—" }}</strong>
+            </div>
+            <div><span>Memory</span><strong>{{ memoryLabel }}</strong></div>
+            <div><span>Thread</span><strong class="mono">{{ shortThreadId }}</strong></div>
+          </div>
+        </section>
+
+        <aside class="workflow-note">
+          <strong>How it works</strong>
+          <p>
+            Read requests return immediately. Quotations and bookings create a
+            proposal, pass risk checks, and pause at the human node. PostgreSQL is
+            mutated only after explicit approval.
+          </p>
+          <button type="button" (click)="openChat()">Run a prompt</button>
+        </aside>
+      </div>
+    }
+  </section>
+</main>
